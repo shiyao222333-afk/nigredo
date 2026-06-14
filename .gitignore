@@ -1,0 +1,42 @@
+# VideoForge
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Data
+data/cache/*
+data/reports/*
+!data/cache/.gitkeep
+!data/reports/.gitkeep
+
+# Temp
+*.tmp
+*.temp
+temp/
+
+# Env
+.env
+cookies.txt
+
+# ASR models
+models/
+*.pt
+*.bin
+
+# Streamlit
+.streamlit/secrets.toml
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

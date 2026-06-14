@@ -1,0 +1,30 @@
+# Alembic — 内容炼金蒸馏器
+# 依赖列表
+
+# === 下载层 ===
+yt-dlp>=2024.0
+
+# === 语音转文字 ===
+faster-whisper>=1.0
+
+# === 视频数据 ===
+bilibili-api-python>=16.0
+
+# === LLM 调用 ===
+requests>=2.31
+openai>=1.0
+
+# === 数据处理 ===
+pandas>=2.0
+numpy>=1.24
+
+# === 知炬联动 ===
+qdrant-client>=1.7
+
+# === UI (MVP) ===
+streamlit>=1.58
+plotly>=5.0
+
+# === 工具 ===
+python-dotenv>=1.0
+rich>=13.0
