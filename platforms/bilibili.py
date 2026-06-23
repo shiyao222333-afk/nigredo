@@ -1,5 +1,5 @@
 """
-⚗️ Alembic — B站 平台适配器
+⚗️ Nigredo — B站 平台适配器
 """
 import re
 import json

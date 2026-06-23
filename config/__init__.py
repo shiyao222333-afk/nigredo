@@ -1,5 +1,5 @@
 """
-⚗️ Alembic 全局配置文件
+⚗️ Nigredo 全局配置文件
 """
 import os
 from pathlib import Path

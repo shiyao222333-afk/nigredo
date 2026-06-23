@@ -1,5 +1,5 @@
 """
-⚗️ Alembic — 任务队列管理器
+⚗️ Nigredo — 任务队列管理器
 """
 from collections import deque
 from dataclasses import dataclass, field

@@ -1,5 +1,5 @@
 """
-⚗️ Alembic — 爆款横向分析
+⚗️ Nigredo — 爆款横向分析
 
 对比多个视频，发现模式、规律、矛盾。
 """
@@ -19,7 +19,7 @@ def cross_analyze(videos: list[dict]) -> dict:
     返回:
         - common_patterns: 共同模式
         - differences: 差异点
-        - contradictions: 矛盾点（为 Crucible 准备）
+        - contradictions: 矛盾点（为 Albedo 准备）
         - ranking: 按指标排序
     """
     if not videos:
@@ -41,7 +41,7 @@ def cross_analyze(videos: list[dict]) -> dict:
     # 4. 最优指标
     best_index = views.index(max(views)) if views else 0
 
-    # 5. 收入差异标注（预留 Crucible 矛盾检测接口）
+    # 5. 收入差异标注（预留 Albedo 矛盾检测接口）
     contradictions = _detect_income_contradictions(videos)
 
     return {
@@ -63,7 +63,7 @@ def cross_analyze(videos: list[dict]) -> dict:
 def _detect_income_contradictions(videos: list[dict]) -> list[dict]:
     """
     检测收入/变现相关的矛盾声明。
-    这是 Crucible 的输入数据接口。
+    这是 Albedo 的输入数据接口。
     """
     income_triggers = ["收入", "赚钱", "月入", "日入", "万", "变现", "副业", "收益"]
     contradictions = []
@@ -75,7 +75,7 @@ def _detect_income_contradictions(videos: list[dict]) -> list[dict]:
                 "video_title": v.get("title", ""),
                 "author": v.get("author", ""),
                 "match": [t for t in income_triggers if t in subtitles][:3],
-                # Crucible 接口：crucible.add_claim(text, source_metadata)
+                # Albedo 接口：crucible.add_claim(text, source_metadata)
                 "crucible_hook": True,
             })
 

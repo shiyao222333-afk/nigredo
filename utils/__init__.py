@@ -1,5 +1,5 @@
 """
-⚗️ Alembic — Cookie 自动读取
+⚗️ Nigredo — Cookie 自动读取
 """
 import subprocess
 import sys

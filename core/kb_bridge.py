@@ -1,7 +1,7 @@
 """
-⚗️ Alembic — 知炬联动桥接
+⚗️ Nigredo — 熔知联动桥接
 
-将 Alembic 的产出注入 Athanor 知识库。
+将 Nigredo 的产出注入 Citrinitas 知识库。
 独立项目通过标准 JSON 接口通信。
 """
 import requests
@@ -14,9 +14,9 @@ def inject_to_athanor(
     metadata: dict = None,
 ) -> bool:
     """
-    将文档注入 Athanor 知识库。
+    将文档注入 Citrinitas 知识库。
 
-    通过 Qdrant HTTP API 直接写入（不依赖 Athanor 代码）。
+    通过 Qdrant HTTP API 直接写入（不依赖 Citrinitas 代码）。
     """
     collection = collection or QDRANT_COLLECTION_VIDEO
 

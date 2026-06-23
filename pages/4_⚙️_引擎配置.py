@@ -1,11 +1,11 @@
 """
-⚗️ Alembic — 配置页面
+⚗️ Nigredo — 配置页面
 """
 import streamlit as st
 
 st.title("⚙️ 引擎配置")
 
-tab1, tab2, tab3 = st.tabs(["🔗 LLM 配置", "🎤 Whisper 配置", "📡 知炬联动"])
+tab1, tab2, tab3 = st.tabs(["🔗 LLM 配置", "🎤 Whisper 配置", "📡 熔知联动"])
 
 with tab1:
     st.markdown("### LLM API 配置")
@@ -20,7 +20,7 @@ with tab2:
     st.selectbox("计算精度", ["int8", "float16"], key="whisper_compute")
 
 with tab3:
-    st.markdown("### Athanor / Qdrant 联动")
+    st.markdown("### Citrinitas / Qdrant 联动")
     st.text_input("Qdrant URL", value="http://localhost:6333", key="qdrant_url")
     st.text_input("视频文档集合", value="video_docs", key="qdrant_video")
     st.text_input("分析报告集合", value="video_analysis", key="qdrant_analysis")

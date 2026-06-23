@@ -1,5 +1,5 @@
 """
-⚗️ Alembic — 缓存/去重管理器
+⚗️ Nigredo — 缓存/去重管理器
 """
 import json
 from pathlib import Path

@@ -1,5 +1,5 @@
 """
-⚗️ Alembic — LLM 文档化引擎
+⚗️ Nigredo — LLM 文档化引擎
 
 将字幕文本转换为结构化文档。
 三种场景对应三套 Prompt 模板。

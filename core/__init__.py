@@ -1,5 +1,5 @@
 """
-⚗️ Alembic — 统一下载层
+⚗️ Nigredo — 统一下载层
 
 封装 yt-dlp，支持多平台音频下载。
 """
@@ -31,7 +31,7 @@ def download_audio(video_url: str, output_dir: str,
         # 使用浏览器 cookie
         cmd.extend(["--cookies-from-browser", "edge"])
     elif DEBUG:
-        print("[Alembic] 未提供 cookie，使用游客模式下载（可能受限）")
+        print("[Nigredo] 未提供 cookie，使用游客模式下载（可能受限）")
 
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
 

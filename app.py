@@ -1,5 +1,5 @@
 """
-⚗️ Alembic — 内容炼金蒸馏器
+⚗️ Nigredo — 学习模仿引擎
 
 链接 → 音频 → 字幕 → 文档 → 数据 → 分析
 """
@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import streamlit as st
 
 st.set_page_config(
-    page_title="Alembic — 内容炼金蒸馏器",
+    page_title="Nigredo — 学习模仿引擎",
     page_icon="⚗️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -40,7 +40,7 @@ st.markdown("""
 
 PAGES = {
     "关于": [
-        st.Page("pages/0_📹_关于.py", title="📹 关于 Alembic"),
+        st.Page("pages/0_📹_关于.py", title="📹 关于 Nigredo"),
     ],
     "核心工作流": [
         st.Page("pages/1_📥_视频摄入.py", title="📥 视频摄入"),
