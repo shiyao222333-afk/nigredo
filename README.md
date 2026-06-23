@@ -1,4 +1,4 @@
-# ⚗️ Alembic — 内容炼金蒸馏器
+# ⚗️ Nigredo · 馏析 — 内容提炼 · 学习模仿引擎
 
 > *Ex tenebris, lumen scientiae.* — 从混沌中提炼知识之光
 
@@ -6,18 +6,30 @@
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 [![Phase](https://img.shields.io/badge/Phase-Alpha-orange)]()
 
-**Alembic** 是 Opus Magnum 炼金术工坊的第二器。连接视频世界与知识引擎，将任意视频平台的内容蒸馏为结构化知识、可模仿的脚本、和数据驱动的洞察。
+**Nigredo**（馏析）是一人公司工坊的**学习模仿引擎**。它将网络上成功者的内容——B站视频、小红书笔记——蒸馏为可分析的结构化知识。
+
+核心逻辑：**副业最快的方式就是模仿成功的人**。Nigredo 负责"拆解"——把别人怎么做的、怎么说的、怎么写的，变成可以研究的原材料。
 
 ```
-🔗 视频链接 → 🎵 音频下载 → 📝 字幕提取 → 🤖 LLM文档化 → 📊 数据分析 → 📚 Athanor 注入
+🔗 内容链接 → 🎵 内容下载 → 📝 文本提取 → 🤖 LLM结构化 → 📊 模式分析 → 📚 Citrinitas 注入
 ```
+
+---
+
+## 🎯 为什么叫"学习模仿引擎"
+
+| 场景 | 输入 | 输出 | 目的 |
+|------|------|------|------|
+| 📖 一人公司案例学习 | B站"一人公司"类视频 | 结构化笔记：商业模式、收入来源、关键决策 | 模仿成功路径 |
+| ✍️ 小红书文案模仿 | 小红书爆款笔记 | 结构拆解、话术模板、情绪曲线 | 学习怎么写能火 |
+| 🔥 竞品/同行分析 | 同类UP主视频合集 | 横向对比、因子分析、差异标注 | 找到自己的差异化角度 |
 
 ---
 
 ## 🏗️ 架构
 
 ```
-alembic/
+nigredo/
 ├── app.py                      # Streamlit 入口
 ├── pages/                      # UI 页面（5页）
 │   ├── 0_📹_关于.py
@@ -35,7 +47,7 @@ alembic/
 │   ├── comment.py              # 评论分析
 │   ├── analyzer.py             # 单视频综合分析
 │   ├── viral.py                # 爆款横向对比
-│   └── kb_bridge.py            # Athanor 知炬联动
+│   └── kb_bridge.py            # Citrinitas 熔知联动
 ├── platforms/                  # 平台适配器
 │   ├── __init__.py             # 抽象基类
 │   └── bilibili.py             # B站实现
@@ -103,8 +115,8 @@ print(result)
 | 📝 字幕提取 | CC → Whisper 兜底 | CC秒级，Whisper分钟级 |
 | 🤖 文档化 | DeepSeek / Qwen / OpenAI | 三套 Prompt 模板 |
 | 📊 数据采集 | bilibili-api-python | 播放/互动/弹幕/评论 |
-| 🔥 爆款分析 | LLM 横向对比 | 模式发现 + 矛盾检测 |
-| 📚 知炬联动 | Qdrant HTTP API | 自动注入 Athanor |
+| 🔥 爆款分析 | LLM 横向对比 | 模式发现 + 矛盾标注 |
+| 📚 熔知联动 | Qdrant HTTP API | 自动注入 Citrinitas |
 
 ---
 
@@ -124,19 +136,19 @@ print(result)
 - [ ] 📋 v0.2: Whisper ASR 兜底 + 弹幕分析 + 评论分析
 - [ ] 📋 v0.3: YouTube 支持 + 爆款横向对比
 - [ ] 📋 v0.4: 小红书支持 + 自动发布工作流
-- [ ] 💭 v1.0: 全平台 + Athanor 深度联动 + Crucible 矛盾检测
+- [ ] 💭 v1.0: 全平台 + Citrinitas 深度联动 + Albedo 矛盾检测
 
 ---
 
-## 🔗 Opus Magnum 生态
+## 🔗 OpusMagnum 生态
 
 | 项目 | 状态 |
 |------|------|
-| ⚛️ [Opus Magnum](https://github.com/shiyao222333-afk/opus) — 总蓝图 | ✅ |
-| 🏭 [Athanor](https://github.com/shiyao222333-afk/knowledge-forge) — 知识引擎 | ✅ MVP |
-| ⚗️ Alembic — 内容蒸馏 | 📋 Alpha |
-| 🔬 Crucible — 矛盾检测 | 💭 规划 |
-| ✨ Elixir — 内容发布 | 💭 远期 |
+| ⚛️ [OpusMagnum · 巨作](https://github.com/shiyao222333-afk/opus-magnum) — 总蓝图 + 战略雷达 | ✅ |
+| 🏭 [Citrinitas · 熔知](https://github.com/shiyao222333-afk/citrinitas) — 知识引擎（核心枢纽） | ✅ v0.8.0 |
+| ⚗️ Nigredo · 馏析 — 学习模仿引擎（本仓库） | 📋 Alpha |
+| 🔬 [Albedo · 炼真](https://github.com/shiyao222333-afk/albedo) — 虚假信息过滤 | 💭 规划 |
+| ✨ [Rubedo · 凝华](https://github.com/shiyao222333-afk/rubedo) — 副业 SOP 自动化 | 🚧 v0.1 |
 
 ---
 
