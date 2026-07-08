@@ -14,9 +14,9 @@ CACHE_DIR = DATA_DIR / "cache"
 REPORTS_DIR = DATA_DIR / "reports"
 
 # === LLM ===
-LLM_BASE_URL = os.getenv("ALEMBIC_LLM_BASE_URL", "https://api.deepseek.com/v1")
-LLM_API_KEY = os.getenv("ALEMBIC_LLM_API_KEY", "")
-LLM_MODEL = os.getenv("ALEMBIC_LLM_MODEL", "deepseek-chat")
+LLM_BASE_URL = os.getenv("NIGREDO_LLM_BASE_URL", "https://api.deepseek.com/v1")
+LLM_API_KEY = os.getenv("NIGREDO_LLM_API_KEY", "")
+LLM_MODEL = os.getenv("NIGREDO_LLM_MODEL", "deepseek-chat")
 
 # === B站 ===
 BILIBILI_COOKIE = os.getenv("BILIBILI_COOKIE", "")
@@ -45,7 +45,7 @@ WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3")  # tiny/base/sm
 HF_TOKEN = os.getenv("HF_TOKEN", "")
 
 # === 调试 ===
-DEBUG = os.getenv("ALEMBIC_DEBUG", "false").lower() == "true"
+DEBUG = os.getenv("NIGREDO_DEBUG", "false").lower() == "true"
 
 # 创建必要目录
 CACHE_DIR.mkdir(parents=True, exist_ok=True)

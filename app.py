@@ -23,14 +23,14 @@ st.markdown("""
 <style>
     .stApp { background-color: #0d1117; }
     .stApp h1, .stApp h2, .stApp h3 { color: #58a6ff; }
-    .alembic-card {
+    .nigredo-card {
         background: #161b22;
         border: 1px solid #30363d;
         border-radius: 8px;
         padding: 16px;
         margin: 8px 0;
     }
-    .alembic-progress {
+    .nigredo-progress {
         color: #d2a8ff;
     }
 </style>

@@ -24,7 +24,6 @@ flowchart TB
     E -->|是| G[LLM分析]
     G --> F
     
-    F --> H[Citrinitas知识库]
     F --> I[Rubedo API接口]
 ```
 
@@ -42,7 +41,6 @@ flowchart TB
 | E | LLM路由 | 原始数据 | 判定结果 | 手脚+大脑分离：代码能处理的不调LLM | ✅ |
 | F | 结构化提取 | 原始数据 | 结构化JSON | 字段映射、格式统一 | ✅ |
 | G | LLM分析 | 原始数据 | 结构化结果 | Prompt驱动，按场景分模板 | ✅ |
-| H | Citrinitas注入 | 结构化数据 | Qdrant文档 | HTTP API写入athanor_v1集合 | ✅ |
 | I | Rubedo API | 结构化数据 | HTTP响应 | REST API，供凝华调用采集结果 | ⬜ |
 
 ---
@@ -58,7 +56,6 @@ flowchart TB
 | E→F | 原始数据 | 不需要LLM（代码直接处理） |
 | E→G | 原始数据 | 需要LLM（语义理解/内容分析） |
 | G→F | LLM结果 | LLM分析完成 |
-| F→H | 结构化数据 | 数据整理完成 |
 | F→I | 结构化数据 | Rubedo请求采集数据 |
 
 ---
@@ -67,4 +64,4 @@ flowchart TB
 
 - 🔴 **C1 企微适配器** — v0.1.0 唯一焦点
 - 🔴 **E LLM路由** — 采集→处理的分界线，直接影响成本
-- 其余节点：已有基础（C2/D/F/G/H）或远期（C3/C4/I）
+- 其余节点：已有基础（C2/D/F/G）或远期（C3/C4/I）

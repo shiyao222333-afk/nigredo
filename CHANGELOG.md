@@ -38,6 +38,12 @@
 ### Fixed
 - **缓存状态 bug**（`core/downloader.py`）：缓存命中时 `**metadata` 会覆盖 `"status": "cached"` 为 `"done"`，导致"已缓存"分支永不触发。改为显式提取字段。
 - **Cookie 未传给 yt-dlp**（`platforms/bilibili.py`）：原代码在检测到 cookie 时错误地加 `--cookies-from-browser edge`（读浏览器 cookie），用户的 `BILIBILI_COOKIE` 字符串从未被使用。新增 `_write_cookie_file()` 将 HTTP cookie 转 Netscape 格式并用 `--cookies` 传入。
+- **b23.tv 短链解析崩溃**（`platforms/bilibili.py`）：原 `parse_url()` 只认 `BV` 直链与 `bilibili.com`，`b23.tv` 短链返回 `None` 导致上层抛 `ValueError: 无法从 URL 提取 BV 号`（`detect_platform` 却认短链，自相矛盾）。新增 `_resolve_b23_url()` 跟随 302 重定向提取真实 BV 号（实测 `https://b23.tv/gag6wSb` → `BV1BXQABNE4y`）。
+
+### Removed
+- 死依赖 `qdrant-client`（`requirements.txt`）：移除提前的 Citrinitas 直写桥接后已无任何引用，删 `# === 熔知联动 ===` 段
+- 命名漂移清理：`config/__init__.py` 的 `ALEMBIC_LLM_*` / `ALEMBIC_DEBUG` 环境变量改名为 `NIGREDO_LLM_*` / `NIGREDO_DEBUG`；`app.py` 的 `.alembic-card` / `.alembic-progress` CSS 类改名为 `.nigredo-card` / `.nigredo-progress`（项目早期代号 Alembic 改名 Nigredo 的残留）
+- `FLOWCHART.md` 删除已随桥接移除的「Citrinitas 注入」节点（H），流程图不再画虚假连线
 - **`_run_async` 事件循环崩溃**（`platforms/bilibili.py`）：原 `get_event_loop()+run_until_complete()` 在 Streamlit 已有运行中的循环时会抛 RuntimeError。改为检测运行中循环则丢到独立线程跑新循环。
 - **CC 字幕字段映射错误**（`platforms/bilibili.py`）：`has_cc_subtitle` 误用 `allow_submit`（是否允许观众投稿字幕），改为检查 `subtitle.list` 是否非空。
 - **Whisper 模型重复加载**（`core/subtitle.py`）：每次调用都重新加载模型，改为模块级缓存只加载一次。

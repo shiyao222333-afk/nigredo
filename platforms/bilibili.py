@@ -33,12 +33,29 @@ class BilibiliPlatform:
     # ── URL 解析 ──────────────────────────
 
     def parse_url(self, url: str) -> Optional[str]:
-        """从 URL 中提取 BV 号"""
+        """从 URL 中提取 BV 号（支持 BV 直链与 b23.tv 短链）"""
         m = BV_PATTERN.search(url)
         if m:
             return m.group(1)
-        # TODO: 短链接 b23.tv 解析
+        # 短链接 b23.tv：跟随 302 重定向拿到真实地址再提取 BV 号
+        if B23_PATTERN.search(url):
+            real_url = self._resolve_b23_url(url)
+            if real_url:
+                m = BV_PATTERN.search(real_url)
+                if m:
+                    return m.group(1)
         return None
+
+    def _resolve_b23_url(self, url: str) -> Optional[str]:
+        """跟随 b23.tv 短链 302 重定向，返回真实视频 URL（失败时返回 None）"""
+        import requests
+
+        try:
+            resp = requests.get(url, allow_redirects=True, timeout=10)
+            return resp.url
+        except Exception as e:
+            logger.warning(f"b23.tv 短链解析失败: {e}")
+            return None
 
     # ── 视频信息 ──────────────────────────
 
