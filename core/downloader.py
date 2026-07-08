@@ -127,11 +127,12 @@ class DownloadManager:
 
     def _extract_subtitle_with_fallback(self, bv_id: str, audio_path: str):
         """
-        提取字幕：优先 CC，失败则用 Whisper ASR
+        提取字幕三级策略：CC → AI 字幕 → Whisper ASR
 
         策略：
-        1. 尝试提取 B站 CC 字幕（快速、免费）
-        2. 如果 CC 字幕不可用，用 Whisper ASR（慢、吃资源、但兜底）
+        1. 优先提取 B站 CC 字幕（人工校对，质量最高、最快）
+        2. CC 不可用则直取 B站 AI 字幕（机器生成，纯网络、不需要 GPU）
+        3. AI 字幕也不可用，回退 Whisper ASR（慢、吃资源、但兜底）
         """
 
         # 1. 尝试提取 CC 字幕
@@ -141,9 +142,18 @@ class DownloadManager:
                 logger.info(f"CC 字幕提取成功: {bv_id}")
                 return subtitle
         except Exception as e:
-            logger.warning(f"CC 字幕提取失败，将使用 Whisper ASR: {e}")
+            logger.warning(f"CC 字幕提取失败，尝试 AI 字幕: {e}")
 
-        # 2. CC 字幕不可用，尝试 Whisper ASR
+        # 2. CC 字幕不可用，尝试直取 B站 AI 字幕（WBI 签名，纯网络请求）
+        try:
+            subtitle = self._bilibili.extract_ai_subtitle(bv_id)
+            if subtitle and subtitle.full_text:
+                logger.info(f"AI 字幕提取成功: {bv_id}")
+                return subtitle
+        except Exception as e:
+            logger.warning(f"AI 字幕提取失败，将使用 Whisper ASR: {e}")
+
+        # 3. AI 字幕不可用，尝试 Whisper ASR
         try:
             logger.info(f"启动 Whisper ASR: {bv_id}")
             whisper_segments = transcribe_with_whisper(audio_path)

@@ -29,6 +29,7 @@ class BilibiliPlatform:
         self.cookie = cookie
         self.browser = browser
         self._api = None  # 惰性加载 bilibili-api
+        self._wbi_mixin_key = None  # 缓存 WBI mixinKey（避免每次重新请求 nav）
 
     # ── URL 解析 ──────────────────────────
 
@@ -230,6 +231,89 @@ class BilibiliPlatform:
             )
         except Exception as e:
             logger.warning(f"CC 字幕提取失败: {e}")
+            return SubtitleResult(source="error", language="", full_text="")
+
+    def extract_ai_subtitle(self, video_id: str) -> SubtitleResult:
+        """通过 WBI 签名接口直取 B站 AI 字幕（机器生成，不在 CC 字幕列表内）。
+
+        适用场景：视频没有人工 CC 字幕，但有 B站 自动生成的 AI 字幕。
+        纯网络请求、匿名即可（不需要登录 Cookie / GPU），比 Whisper ASR 快且免费。
+
+        实现说明：player/wbi/v2 接口强制要求 w_rid 签名；而 bilibili_api 的
+        Credential 类会强制要求登录态——因此这里绕过 Credential，直接用
+        bilibili_api 内部权威的 WBI 签名算法（_enc_wbi / _get_mixin_key）配合
+        匿名 requests 调用，既保证签名正确，又免去登录。
+        """
+        try:
+            self._ensure_api()
+            # 1) 拿 cid（匿名 get_info 即可）
+            video = self._api.video.Video(bvid=video_id, credential=self._credential)
+            info = self._run_async(video.get_info())
+            pages = info.get("pages") or [{}]
+            cid = pages[0].get("cid")
+            if not cid:
+                return SubtitleResult(source="ai_not_found", language="", full_text="")
+
+            # 2) 用 bilibili_api 权威 WBI 签名 + 匿名 requests 调 player/wbi/v2
+            from bilibili_api.utils.network import _enc_wbi, _get_mixin_key
+            import requests
+            if self._wbi_mixin_key is None:
+                self._wbi_mixin_key = self._run_async(_get_mixin_key())
+            params = {"bvid": video_id, "cid": cid, "web_location": 1315873}
+            signed = _enc_wbi(params, self._wbi_mixin_key)
+            headers = {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Referer": f"https://www.bilibili.com/video/{video_id}",
+            }
+            # 若用户配置了 BILIBILI_COOKIE（登录态），带上 Cookie 可解锁更多
+            # 视频的 AI 字幕（B站 对匿名用户可能隐藏 AI 字幕 URL）
+            if self.cookie:
+                headers["Cookie"] = self.cookie
+            resp = requests.get(
+                "https://api.bilibili.com/x/player/wbi/v2",
+                params=signed, headers=headers, timeout=10,
+            )
+            data = resp.json()
+            if data.get("code") != 0:
+                logger.warning(f"AI 字幕接口返回错误: code={data.get('code')} msg={data.get('message')}")
+                return SubtitleResult(source="ai_not_found", language="", full_text="")
+
+            ai = data.get("data", {}).get("ai_subtitle") or {}
+            sub_url = ai.get("subtitle_url", "")
+            if not sub_url:
+                # 该视频 B站 未生成 AI 字幕（接口返回 null 或空 URL）
+                return SubtitleResult(source="ai_not_found", language="", full_text="")
+            if not sub_url.startswith("http"):
+                sub_url = "https:" + sub_url
+
+            resp2 = requests.get(sub_url, headers=headers, timeout=10)
+            data2 = resp2.json()
+            segments = []
+            full_text_parts = []
+            for item in data2.get("body", []):
+                text = item.get("content", "")
+                segments.append({
+                    "start": item.get("from", 0),
+                    "end": item.get("to", 0),
+                    "text": text,
+                })
+                full_text_parts.append(text)
+
+            if not full_text_parts:
+                return SubtitleResult(source="ai_not_found", language="", full_text="")
+
+            return SubtitleResult(
+                source="ai",
+                language="zh",
+                segments=segments,
+                full_text="\n".join(full_text_parts),
+            )
+        except Exception as e:
+            logger.warning(f"AI 字幕提取失败: {e}")
             return SubtitleResult(source="error", language="", full_text="")
 
     # ── 弹幕 ─────────────────────────────

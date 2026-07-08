@@ -65,6 +65,11 @@
 ### Changed
 - **默认浏览器改为 firefox**（`config/__init__.py` + `.env`）：使用者使用火狐，故 `BILIBILI_BROWSER` 默认值由 `edge` 改为 `firefox`。
 
+### Added
+- **B站 AI 字幕直取**（`platforms/bilibili.py`）：新增 `extract_ai_subtitle()`，通过 `player/wbi/v2` 接口（WBI 签名）直取 B站 机器生成的 AI 字幕——纯网络请求、匿名即可、不需 GPU，比 Whisper ASR 快且免费。签名复用 `bilibili_api.utils.network` 内部权威 `_enc_wbi` / `_get_mixin_key`（绕过强制登录的 `Credential` 类）。实测匿名调用返回 `code=0`，签名正确。
+- **字幕三级策略**（`core/downloader.py`）：fallback 链由「CC → Whisper」升级为「CC → AI 字幕 → Whisper」。无人工 CC 字幕时先直取 B站 AI 字幕，仍无则回退 Whisper ASR。
+- **方案A：任务队列**（`core/queue.py` + `run_queue.py` + `run.bat`）：AI 或外部程序调用 `enqueue(url)` 把地址写入 `data/queue.json`；用户双击 `run.bat` 时 `run_queue.py` 在启动 UI 前 drain 队列自动处理，无需手动粘贴。单地址失败不影响后续与 UI 启动。
+
 ---
 
 ## [0.3.0] — 2026-06-26（已废弃）

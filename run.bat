@@ -26,6 +26,13 @@ if %errorlevel% neq 0 goto install_fail
 
 :deps_ok
 
+:: Drain queue (方案A: AI 写入队列，用户开机自动处理)
+echo [QUEUE] Checking pending queue...
+python run_queue.py
+if errorlevel 1 (
+    echo [QUEUE] Queue processing had errors (see log above), continuing to UI...
+)
+
 :: Start app
 echo [START] Starting Nigredo...
 echo [URL] http://127.0.0.1:8502
