@@ -48,10 +48,9 @@ PAGES = {
     ],
     "深度分析": [
         st.Page("pages/3_📊_数据分析.py", title="📊 数据分析"),
-        st.Page("pages/4_🔥_爆款分析.py", title="🔥 爆款分析"),
     ],
     "配置": [
-        st.Page("pages/5_⚙️_引擎配置.py", title="⚙️ 引擎配置"),
+        st.Page("pages/4_⚙️_引擎配置.py", title="⚙️ 引擎配置"),
     ],
 }
 

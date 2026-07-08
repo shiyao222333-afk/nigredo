@@ -17,9 +17,47 @@
 - 推荐方案：#13 UIA自动化为主，#12 wechat-decrypt 备用
 - 下一步：搭建 UIA自动化原型（pywinauto + 企微窗口 + 实时监控）
 
+### Added
+- 字幕生成流程接入主流程（`core/downloader.py`）：下载音频后自动提取 CC 字幕，失败则 Whisper ASR 兜底
+- UI 显示改进（`pages/1_📥_视频摄入.py`）：从原始 JSON 改为显示视频信息 + 字幕内容
+- 异步 API 调用修复（`platforms/bilibili.py`）：添加 `_run_async()` 包装器，兼容 bilibili-api-python v17+ 异步 API
+- Credential 传递修复：Cookie 现在正确传入 Video 构造函数
+- 配置管理：Whisper 参数从 `config/__init__.py` 读取（已就绪）
+- 日志系统：关键步骤添加 logging，方便调试
+
 ### Changed
 - PROJECT_PLAN.md：更新至 v0.1.1，反映步骤3/4完成状态
 - 排除方案清单更新：付费或不可行的全部标注
+- 代码清理：删除 `core/__init__.py` 中的旧下载器函数（与 `core/downloader.py` 功能重叠）
+- 蓝图更新（BLUEPRINT.md）：当前重心从「企微调研」改为「B站字幕流程跑通」
+- 可维护性改进：`_run_async()` 添加详细注释；变量命名改进（v → video）
+- **Whisper 显卡加速 + 默认 large-v3**（`config/__init__.py` + `.env`）：检测到 CUDA 设备则默认 `device=cuda` / `compute_type=float16`，否则退回 `cpu`/`int8`；`WHISPER_MODEL_SIZE` 默认改为 `large-v3`（中文最强）；`.env` 同步更新为中文注释版。
+- **Whisper 模型下载进度条**（`core/subtitle.py` + `pages/4_⚙️_引擎配置.py`）：新增 `download_whisper_model()` / `is_model_cached()` / `_HfProgressTqdm`（把 HuggingFace 下载进度转发给 Streamlit 进度条）。配置页「🎤 Whisper 配置」页签改为：显示 GPU 状态、当前模型、HuggingFace 令牌输入与保存、预下载按钮（后台线程 + `st.rerun` 轮询，显示真实 MB 进度），解决"静默卡在 0 字节"问题。
+- **新增 HF_TOKEN 配置项**：匿名下载大模型常被限速导致卡住，支持填写免费只读令牌提速。
+
+### Fixed
+- **缓存状态 bug**（`core/downloader.py`）：缓存命中时 `**metadata` 会覆盖 `"status": "cached"` 为 `"done"`，导致"已缓存"分支永不触发。改为显式提取字段。
+- **Cookie 未传给 yt-dlp**（`platforms/bilibili.py`）：原代码在检测到 cookie 时错误地加 `--cookies-from-browser edge`（读浏览器 cookie），用户的 `BILIBILI_COOKIE` 字符串从未被使用。新增 `_write_cookie_file()` 将 HTTP cookie 转 Netscape 格式并用 `--cookies` 传入。
+- **`_run_async` 事件循环崩溃**（`platforms/bilibili.py`）：原 `get_event_loop()+run_until_complete()` 在 Streamlit 已有运行中的循环时会抛 RuntimeError。改为检测运行中循环则丢到独立线程跑新循环。
+- **CC 字幕字段映射错误**（`platforms/bilibili.py`）：`has_cc_subtitle` 误用 `allow_submit`（是否允许观众投稿字幕），改为检查 `subtitle.list` 是否非空。
+- **Whisper 模型重复加载**（`core/subtitle.py`）：每次调用都重新加载模型，改为模块级缓存只加载一次。
+- **下载路径硬编码**（`platforms/bilibili.py`）：`download_audio` 固定返回 `.wav`，改为用 glob 找实际输出文件；并 `capture_output` 以便报错时打印 stderr。
+- **异常被静默吞掉**（多处）：`get_video_info` / `extract_subtitle` / `get_danmaku` / `get_comments` 的 `except` 现在 `logger.warning` 记录真实错误，便于排查。
+- **DownloadManager 每次重建**（`pages/1_📥_视频摄入.py`）：改用 `@st.cache_resource` 复用实例。
+- **死代码清理**：删除 `core/subtitle.py` 未使用的 `full_text_parts`；删除 `core/downloader.py` 方法内重复的 `from platforms import SubtitleResult`。
+- **报错信息吞掉真实原因**（`platforms/bilibili.py`）：`subprocess.CalledProcessError` 默认只暴露命令行和 exit code，真实 stderr（如 `HTTP Error 412`）看不到。改为在异常中带上 stderr，并对 412 / 缺 Cookie 给出中文指引。
+- **yt-dlp 兜底路径未传 Cookie**（`_get_info_via_ytdlp`）：信息兜底之前也没带 Cookie，现已统一复用 `_write_cookie_file()`。
+- **根因说明**：B站现在对元数据请求强制要求登录 Cookie（SESSDATA），否则返回 `HTTP Error 412: Precondition Failed`。项目此前无 `.env`，`BILIBILI_COOKIE` 为空 → 所有下载失败。
+- **新增 `.env` 模板**：含 `BILIBILI_COOKIE` 等全部配置项及获取 Cookie 的图文步骤（已被 .gitignore 忽略，不会泄露）。
+- **Cookie 自动获取（免手动）**（`platforms/bilibili.py` + `config/__init__.py`）：新增 `BILIBILI_BROWSER` 配置与 `_resolve_cookie()` 方法。优先级：`.env` 的 `BILIBILI_COOKIE` 手动覆盖 > 自动读浏览器(Edge/Chrome/Firefox)已登录的 B站 Cookie > 匿名。默认留空即自动读浏览器，用户无需复制 Cookie。测试确认 bilibili-api 的 get_info 无需 Cookie，仅 yt-dlp 下载需 Cookie，故浏览器 Cookie 自动读取已足够打通下载流程。
+
+### Added
+- **B站设置界面（免改文件）**（`pages/4_⚙️_引擎配置.py`）：新增「📺 B站配置」页签，可在界面里选择自动读取 Cookie 的浏览器（火狐/Chrome/Edge，默认 firefox）并手动粘贴 Cookie，「保存」按钮把配置写回 `.env`（`config.save_to_env`），重启后依然保留。
+- **B站超链接**（`pages/1_📥_视频摄入.py` + `pages/4_⚙️_引擎配置.py`）：界面内新增「🔗 打开 B站」按钮，一键在浏览器打开 bilibili.com 登录页，无需手动输网址。
+- **界面 Cookie 即时生效**（`core/downloader.py` + `pages/1_📥_视频摄入.py`）：`DownloadManager.process()` 新增可选 `cookie` / `browser` 参数，摄入页从 `session_state` 读取界面配置并传入，设置改动当前会话立即生效（无需重启）。
+
+### Changed
+- **默认浏览器改为 firefox**（`config/__init__.py` + `.env`）：使用者使用火狐，故 `BILIBILI_BROWSER` 默认值由 `edge` 改为 `firefox`。
 
 ---
 
