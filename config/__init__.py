@@ -25,11 +25,6 @@ BILIBILI_COOKIE = os.getenv("BILIBILI_COOKIE", "")
 # 默认 firefox：因使用者使用火狐浏览器
 BILIBILI_BROWSER = os.getenv("BILIBILI_BROWSER", "firefox")
 
-# === Qdrant ===
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-QDRANT_COLLECTION_VIDEO = os.getenv("QDRANT_COLLECTION_VIDEO", "video_docs")
-QDRANT_COLLECTION_ANALYSIS = os.getenv("QDRANT_COLLECTION_ANALYSIS", "video_analysis")
-
 # === Whisper ===
 # GPU 自动探测：检测到 CUDA 设备就用显卡（转录快 5~10 倍），否则退回 CPU
 try:

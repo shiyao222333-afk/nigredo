@@ -148,7 +148,7 @@ BiliSum：
 | 评论分析 | `core/comment.py` | 70% | 有独立模块 |
 | 视频分析 | `core/analyzer.py` | 60% | 单视频综合分析 |
 | 爆款分析 | `core/viral.py` | 60% | 横向对比 |
-| 知识库桥接 | `core/kb_bridge.py` | 80% | 与Citrinitas联动 |
+| 知识库桥接 | `core/kb_bridge.py` | ❌ 已移除 | 提前耦合风险，待各项目可用后再整合（走 Citrinitas ingest 接口，不直写库） |
 | 数据采集 | `core/data_fetcher.py` | 60% | 平台数据 |
 | UI页面 | `pages/` (5页) | 80% | Streamlit界面 |
 | 辅助模块 | `utils/` (3文件) | 70% | 缓存/队列/Cookie |

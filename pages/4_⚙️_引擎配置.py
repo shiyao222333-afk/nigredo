@@ -8,8 +8,8 @@ from config import (BILIBILI_COOKIE, BILIBILI_BROWSER, save_to_env,
 
 st.title("⚙️ 引擎配置")
 
-tab1, tab2, tab3, tab4 = st.tabs(
-    ["🔗 LLM 配置", "🎤 Whisper 配置", "📡 熔知联动", "📺 B站配置"]
+tab1, tab2, tab4 = st.tabs(
+    ["🔗 LLM 配置", "🎤 Whisper 配置", "📺 B站配置"]
 )
 
 with tab1:
@@ -91,13 +91,6 @@ with tab2:
         st.error(f"❌ 下载失败：{holder['error']}")
         st.info("💡 若因限速失败，请在上方填写 HuggingFace 令牌后重试；"
                 "或检查网络是否能访问 huggingface.co。")
-
-with tab3:
-    st.markdown("### Citrinitas / Qdrant 联动")
-    st.text_input("Qdrant URL", value="http://localhost:6333", key="qdrant_url")
-    st.text_input("视频文档集合", value="video_docs", key="qdrant_video")
-    st.text_input("分析报告集合", value="video_analysis", key="qdrant_analysis")
-    st.button("🔗 测试连接")
 
 with tab4:
     st.markdown("### 📺 B站 登录配置")
