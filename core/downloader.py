@@ -9,7 +9,7 @@ import logging
 
 from platforms import SubtitleResult
 from platforms.bilibili import BilibiliPlatform
-from core.subtitle import transcribe_with_whisper
+from core.subtitle import transcribe_with_whisper, format_subtitle_srt
 from utils.cache import VideoCache
 from config import CACHE_DIR, BILIBILI_COOKIE, BILIBILI_BROWSER
 
@@ -121,9 +121,43 @@ class DownloadManager:
             "subtitle": subtitle.__dict__ if subtitle else None,
         }
         self.cache.mark_processed(bv_id, result)
+        # 字幕落盘：转写结果原本只留内存，刷新即丢。这里额外存文件，
+        # 供下游（如 Albedo 炼真）直接「选文件」摄入。
+        self._save_subtitle_files(bv_id, subtitle)
         logger.info(f"处理完成: {bv_id}")
 
         return result
+
+    def _save_subtitle_files(self, bv_id: str, subtitle) -> list:
+        """
+        字幕结果落盘（新增，2026-07-09）：
+        转写/提取出的字幕原本只存在内存，刷新即丢。这里额外存成文件，
+        供下游（如 Albedo 炼真）直接「选文件」摄入。
+        - {bv_id}.txt : 纯文本（下游最干净的摄入格式）
+        - {bv_id}.srt : 带时间轴（供人工校对）
+        无内容则返回空列表，不影响主流程。
+        """
+        if not subtitle or not getattr(subtitle, "full_text", "").strip():
+            return []
+        cache_dir = self.cache.cache_dir
+        saved = []
+        try:
+            txt_path = cache_dir / f"{bv_id}.txt"
+            txt_path.write_text(subtitle.full_text, encoding="utf-8")
+            saved.append(str(txt_path))
+        except Exception as e:
+            logger.warning(f"字幕 .txt 落盘失败: {e}")
+        segs = getattr(subtitle, "segments", None)
+        if segs:
+            try:
+                srt_path = cache_dir / f"{bv_id}.srt"
+                srt_path.write_text(format_subtitle_srt(segs), encoding="utf-8")
+                saved.append(str(srt_path))
+            except Exception as e:
+                logger.warning(f"字幕 .srt 落盘失败: {e}")
+        if saved:
+            logger.info(f"字幕已落盘({len(saved)}个): {bv_id}")
+        return saved
 
     def _extract_subtitle_with_fallback(self, bv_id: str, audio_path: str):
         """
