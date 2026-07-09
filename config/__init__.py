@@ -43,6 +43,9 @@ else:
 WHISPER_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "large-v3")  # tiny/base/small/medium/large-v3
 # HuggingFace 访问令牌（免费）：匿名下载大模型常被限速而卡住，填令牌可显著提速
 HF_TOKEN = os.getenv("HF_TOKEN", "")
+# HuggingFace 镜像源：默认走国内镜像 hf-mirror.com，绕过受限网络/免墙，下载更稳更快。
+# 用户若想用官方源，在 .env 设 HF_ENDPOINT=https://huggingface.co 覆盖即可。
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
 # === 调试 ===
 DEBUG = os.getenv("NIGREDO_DEBUG", "false").lower() == "true"

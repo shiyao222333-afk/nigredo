@@ -34,6 +34,8 @@
 - **Whisper 显卡加速 + 默认 large-v3**（`config/__init__.py` + `.env`）：检测到 CUDA 设备则默认 `device=cuda` / `compute_type=float16`，否则退回 `cpu`/`int8`；`WHISPER_MODEL_SIZE` 默认改为 `large-v3`（中文最强）；`.env` 同步更新为中文注释版。
 - **Whisper 模型下载进度条**（`core/subtitle.py` + `pages/4_⚙️_引擎配置.py`）：新增 `download_whisper_model()` / `is_model_cached()` / `_HfProgressTqdm`（把 HuggingFace 下载进度转发给 Streamlit 进度条）。配置页「🎤 Whisper 配置」页签改为：显示 GPU 状态、当前模型、HuggingFace 令牌输入与保存、预下载按钮（后台线程 + `st.rerun` 轮询，显示真实 MB 进度），解决"静默卡在 0 字节"问题。
 - **新增 HF_TOKEN 配置项**：匿名下载大模型常被限速导致卡住，支持填写免费只读令牌提速。
+- **Whisper 模型下载重写**（`core/subtitle.py`）：原 `snapshot_download` 并发下载器在 Python 3.14 下段错误（进程直接崩）。改为 `hf_hub_download` 单文件顺序下载到 `data/models/faster-whisper-{size}`，faster-whisper 直接加载本地目录（不走缓存结构，避免二次下载）。`progress_callback` 做版本兼容：检测当前 huggingface_hub 是否支持该参数，不支持则自动跳过（新版仍可在配置页显示进度条）。
+- **HuggingFace 镜像源默认开启**（`config/__init__.py`）：代码层 `os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")`——绕过受限网络 / 免墙，下载更稳更快；用户可在 `.env` 用 `HF_ENDPOINT=` 覆盖为官方源。`.gitignore` 已忽略 `data/models/`（模型不进仓库）。
 
 ### Fixed
 - **缓存状态 bug**（`core/downloader.py`）：缓存命中时 `**metadata` 会覆盖 `"status": "cached"` 为 `"done"`，导致"已缓存"分支永不触发。改为显式提取字段。

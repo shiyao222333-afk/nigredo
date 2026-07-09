@@ -12,6 +12,7 @@ venv/
 # Data
 data/cache/*
 data/reports/*
+data/models/*
 !data/cache/.gitkeep
 !data/reports/.gitkeep
 

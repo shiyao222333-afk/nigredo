@@ -4,41 +4,28 @@
 策略：
 1. 优先使用平台 CC 字幕（快速、免费）
 2. CC 不可用时回退到 faster-whisper（慢、吃资源、但兜底）
+
+Whisper 模型下载说明：
+- 默认走 HuggingFace。某些网络环境（受限代理）会掐断到 huggingface.co 的 TLS 连接，
+  可在 .env 设 HF_ENDPOINT=https://hf-mirror.com 改用国内镜像绕过（已默认开启）。
+- huggingface_hub 的并发下载器(thread_map) 在 Python3.14 下会段错误，故这里改用
+  单文件顺序下载（hf_hub_download），更稳。
+- 模型下载到 data/models/faster-whisper-{size}，faster-whisper 直接加载本地目录，
+  不走 huggingface_hub 缓存结构，避免二次下载。
 """
 import os
 from pathlib import Path
+import inspect
 import logging
 from config import WHISPER_MODEL_SIZE, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE, HF_TOKEN
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 logger = logging.getLogger(__name__)
 
 # 模型只加载一次，避免每次调用都重新初始化（medium/large 加载很慢）
 _whisper_model = None
-
-# 下载进度回调（由界面设置；snapshot_download 通过自定义 tqdm 触发）
-_download_progress_cb = None
-
-
-class _HfProgressTqdm:
-    """把 HuggingFace 的下载进度转发给 Streamlit 进度条。
-
-    huggingface_hub 用 tqdm 显示进度，但不接受 progress_callback 参数。
-    这里包一层：每次 update 时把 (已下字节, 总字节) 交给界面回调。
-    """
-    def __init__(self, *args, **kwargs):
-        from huggingface_hub.utils import tqdm as _hf_tqdm
-        self._inner = _hf_tqdm(*args, **kwargs)
-
-    def __getattr__(self, name):
-        return getattr(self._inner, name)
-
-    def update(self, n):
-        self._inner.update(n)
-        if _download_progress_cb is not None and self._inner.total:
-            _download_progress_cb(self._inner.n, self._inner.total)
-
-    def close(self):
-        self._inner.close()
+_whisper_model_path = None
 
 
 def whisper_model_repo(model_size: str = None) -> str:
@@ -46,39 +33,58 @@ def whisper_model_repo(model_size: str = None) -> str:
     return f"Systran/faster-whisper-{model_size or WHISPER_MODEL_SIZE}"
 
 
+def _model_local_dir(model_size: str) -> Path:
+    """模型本地目录：data/models/faster-whisper-{size}"""
+    return PROJECT_ROOT / "data" / "models" / f"faster-whisper-{model_size}"
+
+
 def is_model_cached(model_size: str = None) -> bool:
-    """检查模型是否已下载到 HF 缓存（避免重复下载）"""
-    from huggingface_hub import try_to_load_from_cache
-    repo = whisper_model_repo(model_size)
-    try:
-        path = try_to_load_from_cache(repo, "model.bin", revision="main")
-    except Exception:
-        return False
-    return path is not None and os.path.exists(path)
+    """检查模型是否已下载到本地目录（避免重复下载）"""
+    size = model_size or WHISPER_MODEL_SIZE
+    return (_model_local_dir(size) / "model.bin").exists()
 
 
 def download_whisper_model(model_size: str = None, token: str = None,
                            progress_cb=None) -> str:
     """
-    预下载 Whisper 模型到 HF 缓存（正确的缓存位置，faster-whisper 会自动复用）。
-    progress_cb(done_bytes, total_bytes) 可选，用于界面进度条。
-    返回本地缓存目录路径。
+    单文件顺序下载 Whisper 模型到 data/models/faster-whisper-{size}。
+
+    不用 huggingface_hub 的 snapshot_download（其 thread_map 并发在 Py3.14 段错误），
+    改用 hf_hub_download 逐个文件下载，更稳。
+    返回本地目录路径，faster-whisper 可直接加载该目录。
+    progress_cb(done_bytes, total_bytes) 可选，用于界面进度条（按单文件进度转发）。
     """
-    global _download_progress_cb
-    from huggingface_hub import snapshot_download
-    repo = whisper_model_repo(model_size)
+    from huggingface_hub import list_repo_files, hf_hub_download
+    size = model_size or WHISPER_MODEL_SIZE
+    repo = whisper_model_repo(size)
     use_token = token if token is not None else HF_TOKEN
-    _download_progress_cb = progress_cb
-    try:
-        logger.info(f"开始下载 Whisper 模型: {repo}")
-        local_dir = snapshot_download(
+    local = _model_local_dir(size)
+    local.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"开始下载 Whisper 模型: {repo} -> {local}")
+    files = list_repo_files(repo, repo_type="model")
+    # 进度回调兼容：旧版 huggingface_hub 的 hf_hub_download 无 progress_callback 参数
+    _supports_cb = "progress_callback" in inspect.signature(hf_hub_download).parameters
+    for fname in files:
+        dl_kwargs = dict(
             repo_id=repo,
+            filename=fname,
+            local_dir=str(local),
             token=use_token or None,
-            tqdm_class=_HfProgressTqdm,
         )
-    finally:
-        _download_progress_cb = None
-    return local_dir
+        if progress_cb is not None and _supports_cb:
+            dl_kwargs["progress_callback"] = _wrap_progress(progress_cb, fname)
+        hf_hub_download(**dl_kwargs)
+    logger.info(f"Whisper 模型下载完成: {local}")
+    return str(local)
+
+
+def _wrap_progress(ui_cb, fname):
+    """把 hf_hub_download 的 ProgressInfo 转发给 UI 回调（单文件粒度）"""
+    def _cb(progress):
+        if ui_cb is not None and getattr(progress, "total", 0):
+            ui_cb(progress.completed, progress.total)
+    return _cb
 
 
 def transcribe_with_whisper(audio_path: str, language: str = "zh") -> list[dict]:
@@ -86,15 +92,22 @@ def transcribe_with_whisper(audio_path: str, language: str = "zh") -> list[dict]
     使用 faster-whisper 进行 ASR。
     返回: [{"start": float, "end": float, "text": str}, ...]
     """
-    global _whisper_model
-    if _whisper_model is None:
+    global _whisper_model, _whisper_model_path
+    size = WHISPER_MODEL_SIZE
+    if not is_model_cached(size):
+        local = download_whisper_model(size)
+    else:
+        local = str(_model_local_dir(size))
+
+    if _whisper_model is None or _whisper_model_path != local:
         from faster_whisper import WhisperModel
-        logger.info(f"加载 Whisper 模型: {WHISPER_MODEL_SIZE} / {WHISPER_DEVICE}")
+        logger.info(f"加载 Whisper 模型: {local} / {WHISPER_DEVICE}")
         _whisper_model = WhisperModel(
-            WHISPER_MODEL_SIZE,
+            local,
             device=WHISPER_DEVICE,
             compute_type=WHISPER_COMPUTE_TYPE,
         )
+        _whisper_model_path = local
 
     segments_result = []
 
