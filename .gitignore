@@ -41,3 +41,6 @@ models/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Stray phantom: Windows reserved device name, cannot be deleted programmatically
+nul

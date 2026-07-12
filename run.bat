@@ -1,56 +1,60 @@
 @echo off
 chcp 437 >nul
-title Nigredo v0.1.0
+title Nigredo v0.1.0 - Data Collection Engine
+setlocal enabledelayedexpansion
+set "PROJECT_DIR=%~dp0"
+if "%PROJECT_DIR:~-1%"=="\" set "PROJECT_DIR=%PROJECT_DIR:~0,-1%"
+cd /d "%PROJECT_DIR%"
 
-echo ==============================================
-echo   Nigredo v0.1.0 - Data Collection Engine
-echo ==============================================
+echo **************************************************
+echo   * Nigredo v0.1.0 (Data Collection)  * Opus Magnum Front-Half
+echo   Port: 8502   *   One-click launcher
+echo **************************************************
 echo.
 
-:: Kill old process on port 8502
-powershell -Command "Get-NetTCPConnection -LocalPort 8502 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
-powershell -Command "Get-Process python -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*nigredo*' -or $_.CommandLine -like '*streamlit*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
-timeout /t 2 >nul
-
-:: Check Python
-python --version >nul 2>&1
-if %errorlevel% neq 0 goto no_python
-
-:: Check dependencies
-python -c "import streamlit, yt_dlp, bilibili_api" >nul 2>&1
-if %errorlevel% equ 0 goto deps_ok
-
-echo [INSTALL] Installing dependencies...
-pip install -r requirements.txt
-if %errorlevel% neq 0 goto install_fail
-
-:deps_ok
-
-:: Drain queue (方案A: AI 写入队列，用户开机自动处理)
-echo [QUEUE] Checking pending queue...
-python run_queue.py
-if errorlevel 1 (
-    echo [QUEUE] Queue processing had errors (see log above), continuing to UI...
+REM --- Python: prefer project venv; create if missing; fallback to system python ---
+if exist "%PROJECT_DIR%\venv\Scripts\python.exe" (
+    set "PY=%PROJECT_DIR%\venv\Scripts\python.exe"
+) else (
+    where python >nul 2>nul
+    if not errorlevel 1 (
+        echo [SETUP] First run: creating venv and installing dependencies...
+        python -m venv "%PROJECT_DIR%\venv" && "%PROJECT_DIR%\venv\Scripts\python.exe" -m pip install -r "%PROJECT_DIR%\requirements.txt"
+        if exist "%PROJECT_DIR%\venv\Scripts\python.exe" (
+            set "PY=%PROJECT_DIR%\venv\Scripts\python.exe"
+        ) else (
+            set "PY=python"
+        )
+    ) else (
+        set "PY=python"
+    )
 )
 
-:: Start app
-echo [START] Starting Nigredo...
-echo [URL] http://127.0.0.1:8502
-echo.
-python -m streamlit run app.py --server.port 8502
+REM --- Dependency check ---
+%PY% -c "import streamlit, yt_dlp, bilibili_api" >nul 2>&1
+if errorlevel 1 (
+    echo [INSTALL] Installing dependencies...
+    %PY% -m pip install -r "%PROJECT_DIR%\requirements.txt"
+)
+
+REM --- Kill old process on port 8502 ---
+powershell -Command "Get-NetTCPConnection -LocalPort 8502 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+timeout /t 2 >nul
+
+REM --- Drain queue (AI writes tasks; user runs them on startup) ---
+echo [QUEUE] Checking pending queue...
+%PY% run_queue.py
+if errorlevel 1 (
+    echo [QUEUE] Queue processing had errors (see log above), continuing...
+)
+
+REM --- Launch ---
+echo [START] Nigredo on http://127.0.0.1:8502
+start "" http://127.0.0.1:8502
+%PY% -m streamlit run app.py --server.port 8502
 set EXIT_CODE=%errorlevel%
 if %EXIT_CODE% NEQ 0 goto error_exit
 goto normal_exit
-
-:no_python
-echo [ERROR] Python not found. Please install Python 3.10+
-pause
-exit /b 1
-
-:install_fail
-echo [ERROR] Dependency installation failed
-pause
-exit /b 1
 
 :error_exit
 echo.
