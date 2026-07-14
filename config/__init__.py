@@ -13,6 +13,13 @@ DATA_DIR = PROJECT_ROOT / "data"
 CACHE_DIR = DATA_DIR / "cache"
 REPORTS_DIR = DATA_DIR / "reports"
 
+# === 中转输出（文件夹契约） ===
+# 馏析把处理结果写成「中转①」（{bv}.md，带 YAML frontmatter）到 OUTPUT_DIR；
+# 炼真(Albedo) 的监控目录默认也指向这里。三器各自可改（env 覆盖）。
+OUTPUT_DIR = Path(os.getenv("NIGREDO_OUTPUT_DIR", r"D:\opus-magnum\front_half\transit\nigredo_out"))
+# 人审闸门：true 时 中转① 先写进 OUTPUT_DIR/review_pending/，需晋级才进入下游；默认关（调试优先）
+REQUIRE_HUMAN_REVIEW = os.getenv("NIGREDO_REQUIRE_HUMAN_REVIEW", "false").lower() == "true"
+
 # === LLM ===
 LLM_BASE_URL = os.getenv("NIGREDO_LLM_BASE_URL", "https://api.deepseek.com/v1")
 LLM_API_KEY = os.getenv("NIGREDO_LLM_API_KEY", "")
@@ -53,6 +60,7 @@ DEBUG = os.getenv("NIGREDO_DEBUG", "false").lower() == "true"
 # 创建必要目录
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def save_to_env(key: str, value: str) -> None:

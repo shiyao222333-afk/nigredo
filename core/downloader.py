@@ -11,7 +11,7 @@ from platforms import SubtitleResult
 from platforms.bilibili import BilibiliPlatform
 from core.subtitle import transcribe_with_whisper, format_subtitle_srt
 from utils.cache import VideoCache
-from config import CACHE_DIR, BILIBILI_COOKIE, BILIBILI_BROWSER
+from config import CACHE_DIR, BILIBILI_COOKIE, BILIBILI_BROWSER, OUTPUT_DIR, REQUIRE_HUMAN_REVIEW
 
 logging.basicConfig(
     level=logging.INFO,
@@ -124,6 +124,8 @@ class DownloadManager:
         # 字幕落盘：转写结果原本只留内存，刷新即丢。这里额外存文件，
         # 供下游（如 Albedo 炼真）直接「选文件」摄入。
         self._save_subtitle_files(bv_id, subtitle)
+        # 中转①落盘（文件夹契约）：写 {bv}.md 供 Albedo 炼真监控消费
+        self._save_transit_md(bv_id, info, subtitle)
         logger.info(f"处理完成: {bv_id}")
 
         return result
@@ -158,6 +160,50 @@ class DownloadManager:
         if saved:
             logger.info(f"字幕已落盘({len(saved)}个): {bv_id}")
         return saved
+
+    def _save_transit_md(self, bv_id: str, info, subtitle) -> list:
+        """
+        中转①落盘（文件夹契约，2026-07-12）：
+        把处理结果写成 {bv_id}.md（YAML frontmatter 带元数据 + 正文=字幕），
+        供下游 Albedo 炼真 的监控模块直接消费。
+        - REQUIRE_HUMAN_REVIEW=false：写进 OUTPUT_DIR 根（被 Albedo 监控）
+        - REQUIRE_HUMAN_REVIEW=true：写进 OUTPUT_DIR/review_pending/（待人工/总管晋级）
+        元信息字段对齐 Albedo 的 AlbedoInput：title / up_name / video_id / source_url / platform。
+        正文 = 字幕 full_text。
+        """
+        if not subtitle or not getattr(subtitle, "full_text", "").strip():
+            return []
+        import json
+
+        def _scalar(v):
+            return json.dumps(v, ensure_ascii=False)
+
+        lines = [
+            "---",
+            f"platform: {_scalar(getattr(info, 'platform', 'bilibili'))}",
+            f"video_id: {_scalar(getattr(info, 'video_id', bv_id))}",
+            f"title: {_scalar(getattr(info, 'title', ''))}",
+            f"up_name: {_scalar(getattr(info, 'author', ''))}",
+            f"source_url: {_scalar(getattr(info, 'url', ''))}",
+            "---",
+            "",
+            subtitle.full_text,
+        ]
+        content = "\n".join(lines)
+        target_dir = OUTPUT_DIR
+        if REQUIRE_HUMAN_REVIEW:
+            target_dir = OUTPUT_DIR / "review_pending"
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            md_path = target_dir / f"{bv_id}.md"
+            md_path.write_text(content, encoding="utf-8")
+            logger.info(
+                f"中转①已落盘: {md_path} (人审={'开' if REQUIRE_HUMAN_REVIEW else '关'})"
+            )
+            return [str(md_path)]
+        except Exception as e:
+            logger.warning(f"中转① .md 落盘失败: {e}")
+            return []
 
     def _extract_subtitle_with_fallback(self, bv_id: str, audio_path: str):
         """
