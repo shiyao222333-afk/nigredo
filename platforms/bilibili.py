@@ -340,13 +340,13 @@ class BilibiliPlatform:
 
     # ── 评论 ─────────────────────────────
 
-    def get_comments(self, video_id: str, max_count: int = 200) -> list[dict]:
-        """获取视频评论"""
+    def get_comments(self, video_id: str, max_count: int = 100) -> list[dict]:
+        """获取视频评论（按点赞排序，只取高赞关键评论）"""
         self._ensure_api()
         comments = []
         try:
             from bilibili_api import comment as comment_api
-            from bilibili_api.comment import CommentResourceType
+            from bilibili_api.comment import CommentResourceType, OrderType
             # 评论接口用 oid = aid（av号），需先从 bvid 取 aid
             video = self._api.video.Video(bvid=video_id, credential=self._credential)
             info = self._run_async(video.get_info())
@@ -361,6 +361,7 @@ class BilibiliPlatform:
                         oid=aid,
                         type_=CommentResourceType.VIDEO,
                         page_index=page,
+                        order=OrderType.LIKE,
                         credential=self._credential,
                     )
                 )
@@ -379,6 +380,70 @@ class BilibiliPlatform:
         except Exception as e:
             logger.warning(f"评论获取失败（已返回部分结果）: {e}")
         return comments
+
+    # ── 标签 / AI 摘要 / 高光时间点 ──
+
+    def get_tags(self, video_id: str) -> list:
+        """获取视频标签（topic tags），下游直供熔知 keywords。"""
+        self._ensure_api()
+        try:
+            video = self._api.video.Video(bvid=video_id, credential=self._credential)
+            tags = self._run_async(video.get_tags())
+            return [t.get("tag_name") for t in (tags or []) if t.get("tag_name")]
+        except Exception as e:
+            logger.warning(f"标签获取失败: {e}")
+            return []
+
+    def get_ai_conclusion(self, video_id: str) -> str:
+        """获取 B站 AI 生成的视频摘要/结论，供炼真分析。"""
+        self._ensure_api()
+        try:
+            video = self._api.video.Video(bvid=video_id, credential=self._credential)
+            info = self._run_async(video.get_info())
+            pages = info.get("pages") or [{}]
+            cid = pages[0].get("cid")
+            if not cid:
+                return ""
+            conclusion = self._run_async(video.get_ai_conclusion(cid=cid))
+            if isinstance(conclusion, dict):
+                return (conclusion.get("conclusion")
+                        or conclusion.get("summary")
+                        or conclusion.get("model_result")
+                        or conclusion.get("result") or "")
+            if isinstance(conclusion, str):
+                return conclusion
+            return ""
+        except Exception as e:
+            logger.warning(f"AI 摘要获取失败: {e}")
+            return ""
+
+    def get_pbp(self, video_id: str) -> list:
+        """获取高能进度条（高光时间点），返回 [{time, content}, ...]。"""
+        self._ensure_api()
+        try:
+            video = self._api.video.Video(bvid=video_id, credential=self._credential)
+            info = self._run_async(video.get_info())
+            pages = info.get("pages") or [{}]
+            cid = pages[0].get("cid")
+            if not cid:
+                return []
+            pbp = self._run_async(video.get_pbp(cid=cid))
+            if isinstance(pbp, dict):
+                items = pbp.get("pbp") or pbp.get("data") or pbp.get("list") or []
+            elif isinstance(pbp, list):
+                items = pbp
+            else:
+                items = []
+            out = []
+            for it in items:
+                if isinstance(it, dict):
+                    t = it.get("time") or it.get("timestamp") or 0
+                    c = it.get("content") or it.get("title") or ""
+                    out.append({"time": t, "content": c})
+            return out
+        except Exception as e:
+            logger.warning(f"高光时间点获取失败: {e}")
+            return []
 
     # ── 辅助 ─────────────────────────────
 

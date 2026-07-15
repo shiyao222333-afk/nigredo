@@ -5,7 +5,9 @@
 """
 from pathlib import Path
 import re
+import json
 import logging
+from datetime import datetime, timezone, timedelta
 
 from platforms import SubtitleResult
 from platforms.bilibili import BilibiliPlatform
@@ -116,7 +118,11 @@ class DownloadManager:
         logger.info(f"获取弹幕与评论: {bv_id}")
         danmakus = self._bilibili.get_danmaku(bv_id) or []
         comments = self._bilibili.get_comments(bv_id) or []
-        logger.info(f"弹幕 {len(danmakus)} 条 / 评论 {len(comments)} 条")
+        # 增强：标签 / AI 摘要 / 高光时间点（结构化分析用，直供熔知 keywords）
+        tags = self._bilibili.get_tags(bv_id) or []
+        ai_conclusion = self._bilibili.get_ai_conclusion(bv_id) or ""
+        pbp = self._bilibili.get_pbp(bv_id) or []
+        logger.info(f"弹幕 {len(danmakus)} 条 / 评论 {len(comments)} 条 / 标签 {len(tags)} 个")
 
         # 构建结果
         result = {
@@ -127,13 +133,17 @@ class DownloadManager:
             "subtitle": subtitle.__dict__ if subtitle else None,
             "danmakus": danmakus,
             "comments": comments,
+            "tags": tags,
+            "ai_conclusion": ai_conclusion,
+            "pbp": pbp,
         }
         self.cache.mark_processed(bv_id, result)
         # 字幕落盘：转写结果原本只留内存，刷新即丢。这里额外存文件，
         # 供下游（如 Albedo 炼真）直接「选文件」摄入。
         self._save_subtitle_files(bv_id, subtitle)
-        # 中转①落盘（文件夹契约）：写 {bv}.md 供 Albedo 炼真监控消费
-        self._save_transit_md(bv_id, info, subtitle, danmakus, comments)
+        # 中转①落盘（单文件结构化）：写 {bv}.md 供 Albedo 炼真监控消费
+        self._save_transit_md(bv_id, info, subtitle, danmakus, comments,
+                              tags, ai_conclusion, pbp)
         logger.info(f"处理完成: {bv_id}")
 
         return result
@@ -170,22 +180,22 @@ class DownloadManager:
         return saved
 
     def _save_transit_md(self, bv_id: str, info, subtitle,
-                         danmakus=None, comments=None) -> list:
+                         danmakus=None, comments=None,
+                         tags=None, ai_conclusion="", pbp=None) -> list:
         """
-        中转①落盘（文件夹契约，2026-07-12）：
-        把处理结果写成 {bv_id}.md（YAML frontmatter 带元数据 + 正文=字幕），
-        供下游 Albedo 炼真 的监控模块直接消费。
+        中转①落盘（合并单文件，2026-07-15 重写）：
+        把「字幕 + 分析元数据 + 弹幕(去重过滤) + 高赞评论 + 标签 + AI摘要 + 高光 + 统计历史」
+        全部合并写成唯一的 {bv_id}.md（YAML frontmatter + 结构化正文），
+        供下游 Albedo 炼真 直接读取分析，无需再拼多个 sidecar。
         - REQUIRE_HUMAN_REVIEW=false：写进 OUTPUT_DIR 根（被 Albedo 监控）
-        - REQUIRE_HUMAN_REVIEW=true：写进 OUTPUT_DIR/review_pending/（待人工/总管晋级）
-        元信息字段对齐 Albedo 的 AlbedoInput：title / up_name / video_id / source_url / platform。
-        正文 = 字幕 full_text。
-        2026-07-15 增强：frontmatter 写入播放/点赞/投币/收藏/分享/评论/弹幕计数；
-        弹幕与评论全文写入 sidecar 文件 {bv}_danmaku.txt / {bv}_comments.txt（同目录），
-        供炼真/数据分析消费，不污染字幕正文语义。
+        - REQUIRE_HUMAN_REVIEW=true：写进 OUTPUT_DIR/review_pending/
+        元信息字段对齐下游 AlbedoInput：title / up_name / video_id / source_url / platform。
+        frontmatter 含：计数 / 互动率(赞率·藏率·币率·弹幕密度) / 弹幕去重前后计数 /
+        标签与 keywords(=标签, 直供熔知) / 有无 AI 摘要 / 抓取时间 fetched_at。
+        正文分节：# 字幕 # AI 摘要 # 高光时间点 # 弹幕(去重过滤后) # 高赞评论 # 统计历史。
         """
         if not subtitle or not getattr(subtitle, "full_text", "").strip():
             return []
-        import json
 
         def _scalar(v):
             return json.dumps(v, ensure_ascii=False)
@@ -193,75 +203,226 @@ class DownloadManager:
         def _stat(attr):
             return getattr(info, attr, None)
 
-        lines = [
+        def _rate(part, whole):
+            try:
+                p = float(part); w = float(whole)
+            except (TypeError, ValueError):
+                return None
+            if not w:
+                return None
+            return round(p / w * 100, 2)
+
+        def _flow_list(items):
+            if not items:
+                return "[]"
+            return "[" + ", ".join(json.dumps(x, ensure_ascii=False) for x in items) + "]"
+
+        # —— 计数 ——
+        view = _stat("view_count")
+        like = _stat("like_count")
+        coin = _stat("coin_count")
+        favorite = _stat("favorite_count")
+        share = _stat("share_count")
+        comment = _stat("comment_count")
+        danmaku = _stat("danmaku_count")
+        duration = _stat("duration")
+
+        # —— 弹幕去重过滤 ——
+        clean_dm, dup_n, junk_n = self._clean_danmakus(danmakus)
+        dm_before = len(danmakus) if danmakus else 0
+        dm_after = len(clean_dm)
+
+        # —— 高赞评论（已按点赞排序，取前 50）——
+        top_comments = (comments or [])[:50]
+
+        # —— 标签 / keywords（=标签，直供熔知）——
+        tag_list = tags or []
+        has_ai = bool(ai_conclusion and str(ai_conclusion).strip())
+
+        # —— 高光时间点 ——
+        highlights = []
+        for p in (pbp or []):
+            t = p.get("time")
+            c = (p.get("content") or "").strip()
+            if c:
+                try:
+                    mm = int(float(t) // 60); ss = int(float(t) % 60)
+                    highlights.append(f"- [{mm:02d}:{ss:02d}] {c}")
+                except (TypeError, ValueError):
+                    highlights.append(f"- {c}")
+
+        # —— 互动率 / 密度 ——
+        like_rate = _rate(like, view)
+        fav_rate = _rate(favorite, view)
+        coin_rate = _rate(coin, view)
+        dm_density = None
+        if duration and view is not None:
+            try:
+                mins = float(duration) / 60.0
+                if mins > 0:
+                    dm_density = round(float(danmaku) / mins, 2) if danmaku is not None else None
+            except (TypeError, ValueError):
+                dm_density = None
+
+        # —— 统计历史（合并历次抓取，不覆盖旧记录）——
+        target_dir = OUTPUT_DIR
+        if REQUIRE_HUMAN_REVIEW:
+            target_dir = OUTPUT_DIR / "review_pending"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        md_path = target_dir / f"{bv_id}.md"
+        fetched_at = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d %H:%M:%S +08:00")
+        old_hist = self._read_history_lines(md_path)
+        new_hist_line = (
+            f"- {fetched_at} | 播放{view} 赞{like}({like_rate}%) "
+            f"币{coin} 藏{favorite} 弹{dm_before}→{dm_after}"
+        )
+        history_lines = [new_hist_line] + old_hist
+
+        # —— frontmatter ——
+        fm = [
             "---",
             f"platform: {_scalar(getattr(info, 'platform', 'bilibili'))}",
             f"video_id: {_scalar(getattr(info, 'video_id', bv_id))}",
             f"title: {_scalar(getattr(info, 'title', ''))}",
             f"up_name: {_scalar(getattr(info, 'author', ''))}",
             f"source_url: {_scalar(getattr(info, 'url', ''))}",
-            f"view_count: {_scalar(_stat('view_count'))}",
-            f"like_count: {_scalar(_stat('like_count'))}",
-            f"coin_count: {_scalar(_stat('coin_count'))}",
-            f"favorite_count: {_scalar(_stat('favorite_count'))}",
-            f"share_count: {_scalar(_stat('share_count'))}",
-            f"comment_count: {_scalar(_stat('comment_count'))}",
-            f"danmaku_count: {_scalar(_stat('danmaku_count'))}",
+            f"view_count: {_scalar(view)}",
+            f"like_count: {_scalar(like)}",
+            f"coin_count: {_scalar(coin)}",
+            f"favorite_count: {_scalar(favorite)}",
+            f"share_count: {_scalar(share)}",
+            f"comment_count: {_scalar(comment)}",
+            f"danmaku_count: {_scalar(danmaku)}",
+            f"fetched_at: {_scalar(fetched_at)}",
+            f"like_rate: {_scalar(like_rate)}",
+            f"favorite_rate: {_scalar(fav_rate)}",
+            f"coin_rate: {_scalar(coin_rate)}",
+            f"danmaku_density_per_min: {_scalar(dm_density)}",
+            f"danmaku_total_before: {_scalar(dm_before)}",
+            f"danmaku_after_dedup_filter: {_scalar(dm_after)}",
+            f"danmaku_duplicates_removed: {_scalar(dup_n)}",
+            f"danmaku_junk_removed: {_scalar(junk_n)}",
+            f"comments_order: {_scalar('like')}",
+            f"comments_included: {_scalar(len(top_comments))}",
+            f"tags: {_flow_list(tag_list)}",
+            f"keywords: {_flow_list(tag_list)}",
+            f"has_ai_conclusion: {_scalar(has_ai)}",
             "---",
-            "",
-            subtitle.full_text,
         ]
-        content = "\n".join(lines)
-        target_dir = OUTPUT_DIR
-        if REQUIRE_HUMAN_REVIEW:
-            target_dir = OUTPUT_DIR / "review_pending"
+
+        # —— 正文 ——
+        body = []
+        body.append("")
+        body.append("# 字幕")
+        body.append(subtitle.full_text)
+        body.append("")
+        if has_ai:
+            body.append("# AI 摘要")
+            body.append(str(ai_conclusion).strip())
+            body.append("")
+        if highlights:
+            body.append("# 高光时间点")
+            body.extend(highlights)
+            body.append("")
+        if clean_dm:
+            body.append("# 弹幕（去重过滤后）")
+            for d in clean_dm:
+                t = d.get("time", 0) or 0
+                txt = (d.get("text") or "").replace("\n", " ").strip()
+                if txt:
+                    body.append(f"[{t:.0f}s] {txt}")
+            body.append("")
+        if top_comments:
+            body.append("# 高赞评论")
+            for c in top_comments:
+                user = c.get("user", "") or ""
+                likes = c.get("likes", 0) or 0
+                txt = (c.get("text") or "").replace("\n", " ").strip()
+                if txt:
+                    body.append(f"[{likes}赞] {user}: {txt}")
+            body.append("")
+        body.append("# 统计历史")
+        body.extend(history_lines)
+        body.append("")
+
+        content = "\n".join(fm + body)
         saved = []
         try:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            md_path = target_dir / f"{bv_id}.md"
             md_path.write_text(content, encoding="utf-8")
             saved.append(str(md_path))
             logger.info(
-                f"中转①已落盘: {md_path} (人审={'开' if REQUIRE_HUMAN_REVIEW else '关'})"
+                f"中转①单文件已落盘: {md_path} "
+                f"(弹幕 {dm_before}→{dm_after}, 评论 {len(top_comments)}, 标签 {len(tag_list)}, AI摘要={has_ai})"
             )
         except Exception as e:
             logger.warning(f"中转① .md 落盘失败: {e}")
-            return saved
-
-        # 弹幕 sidecar（全文，[时间] 文本）
-        if danmakus:
-            try:
-                dm_path = target_dir / f"{bv_id}_danmaku.txt"
-                dm_lines = []
-                for d in danmakus:
-                    t = d.get("time", 0) or 0
-                    txt = (d.get("text") or "").replace("\n", " ").strip()
-                    if txt:
-                        dm_lines.append(f"[{t:.0f}s] {txt}")
-                if dm_lines:
-                    dm_path.write_text("\n".join(dm_lines), encoding="utf-8")
-                    saved.append(str(dm_path))
-            except Exception as e:
-                logger.warning(f"弹幕 sidecar 落盘失败: {e}")
-
-        # 评论 sidecar（全文，[赞数] 用户: 文本）
-        if comments:
-            try:
-                cm_path = target_dir / f"{bv_id}_comments.txt"
-                cm_lines = []
-                for c in comments:
-                    user = c.get("user", "") or ""
-                    likes = c.get("likes", 0) or 0
-                    txt = (c.get("text") or "").replace("\n", " ").strip()
-                    if txt:
-                        cm_lines.append(f"[{likes}赞] {user}: {txt}")
-                if cm_lines:
-                    cm_path.write_text("\n".join(cm_lines), encoding="utf-8")
-                    saved.append(str(cm_path))
-            except Exception as e:
-                logger.warning(f"评论 sidecar 落盘失败: {e}")
-
         return saved
+
+    def _clean_danmakus(self, danmakus):
+        """
+        弹幕去重 + 去废（2026-07-15）：
+        去掉大部分无用弹幕——纯符号 / 超短 / 打卡类水帖 / 重复刷屏。
+        返回 (清洗后列表[dict(time,text)], 重复数, 废帖数)。
+        """
+        if not danmakus:
+            return [], 0, 0
+        JUNK = {
+            "前排", "前排占座", "打卡", "签到", "路过", "三连", "沙发", "板凳",
+            "666", "233", "2333", "111", "顶", "赞", "哦", "啊", "马",
+            "哈哈", "哈哈哈", "哈哈哈哈", "呵呵", "喵", "蹲", "来了",
+        }
+        seen = set()
+        kept = []
+        dup_n = 0
+        junk_n = 0
+        for d in danmakus:
+            t = d.get("time", 0) or 0
+            txt = (d.get("text") or "").strip()
+            if not txt:
+                junk_n += 1
+                continue
+            key = re.sub(r"\s+", "", txt).lower()
+            if len(txt) <= 1:
+                junk_n += 1
+                continue
+            if re.fullmatch(r"[\W_]+", txt):
+                junk_n += 1
+                continue
+            if len(txt) <= 6 and txt in JUNK:
+                junk_n += 1
+                continue
+            if key in seen:
+                dup_n += 1
+                continue
+            seen.add(key)
+            kept.append({"time": t, "text": txt})
+        return kept, dup_n, junk_n
+
+    def _read_history_lines(self, md_path):
+        """
+        读取已有 {bv}.md 的「# 统计历史」章节，返回保留 '- ' 前缀的历史行列表。
+        保留前缀是为了回写时可直接 extend，保证历次抓取能正确累积、
+        不覆盖旧记录（下一轮读取仍能识别这些行）。
+        """
+        if not md_path.exists():
+            return []
+        try:
+            text = md_path.read_text(encoding="utf-8")
+        except Exception:
+            return []
+        out = []
+        in_hist = False
+        for ln in text.splitlines():
+            s = ln.strip()
+            if s.startswith("# 统计历史"):
+                in_hist = True
+                continue
+            if in_hist:
+                if s.startswith("# "):
+                    break
+                if s.startswith("- "):
+                    out.append(s)
+        return out
 
     def _extract_subtitle_with_fallback(self, bv_id: str, audio_path: str):
         """
