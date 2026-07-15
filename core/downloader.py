@@ -118,11 +118,18 @@ class DownloadManager:
         logger.info(f"获取弹幕与评论: {bv_id}")
         danmakus = self._bilibili.get_danmaku(bv_id) or []
         comments = self._bilibili.get_comments(bv_id) or []
+        pinned_comments = self._bilibili.get_pinned_comments(bv_id) or []
         # 增强：标签 / AI 摘要 / 高光时间点（结构化分析用，直供熔知 keywords）
         tags = self._bilibili.get_tags(bv_id) or []
         ai_conclusion = self._bilibili.get_ai_conclusion(bv_id) or ""
         pbp = self._bilibili.get_pbp(bv_id) or []
-        logger.info(f"弹幕 {len(danmakus)} 条 / 评论 {len(comments)} 条 / 标签 {len(tags)} 个")
+        # 播放分析（创作者私有：3秒退出率/平均时长/完播率；非自有视频返回空）
+        play_analysis = self._bilibili.get_play_analysis(bv_id) or {}
+        logger.info(
+            f"弹幕 {len(danmakus)} 条 / 评论 {len(comments)} 条 / "
+            f"置顶 {len(pinned_comments)} 条 / 标签 {len(tags)} 个 / "
+            f"播放分析{'有' if play_analysis else '无'}"
+        )
 
         # 构建结果
         result = {
@@ -133,9 +140,11 @@ class DownloadManager:
             "subtitle": subtitle.__dict__ if subtitle else None,
             "danmakus": danmakus,
             "comments": comments,
+            "pinned_comments": pinned_comments,
             "tags": tags,
             "ai_conclusion": ai_conclusion,
             "pbp": pbp,
+            "play_analysis": play_analysis,
         }
         self.cache.mark_processed(bv_id, result)
         # 字幕落盘：转写结果原本只留内存，刷新即丢。这里额外存文件，
@@ -143,7 +152,9 @@ class DownloadManager:
         self._save_subtitle_files(bv_id, subtitle)
         # 中转①落盘（单文件结构化）：写 {bv}.md 供 Albedo 炼真监控消费
         self._save_transit_md(bv_id, info, subtitle, danmakus, comments,
-                              tags, ai_conclusion, pbp)
+                              tags, ai_conclusion, pbp,
+                              pinned_comments=pinned_comments,
+                              play_analysis=play_analysis)
         logger.info(f"处理完成: {bv_id}")
 
         return result
@@ -181,18 +192,22 @@ class DownloadManager:
 
     def _save_transit_md(self, bv_id: str, info, subtitle,
                          danmakus=None, comments=None,
-                         tags=None, ai_conclusion="", pbp=None) -> list:
+                         tags=None, ai_conclusion="", pbp=None,
+                         pinned_comments=None, play_analysis=None) -> list:
         """
         中转①落盘（合并单文件，2026-07-15 重写）：
-        把「字幕 + 分析元数据 + 弹幕(去重过滤) + 高赞评论 + 标签 + AI摘要 + 高光 + 统计历史」
+        把「字幕 + 分析元数据 + 弹幕(去重过滤) + 置顶评论 + 高赞评论(去水) +
+        标签(=keywords) + AI摘要 + 高光 + 播放分析 + 统计历史」
         全部合并写成唯一的 {bv_id}.md（YAML frontmatter + 结构化正文），
-        供下游 Albedo 炼真 直接读取分析，无需再拼多个 sidecar。
+        供下游 Albedo 炼真 直接整文件读取分析，无需再拼多个 sidecar。
         - REQUIRE_HUMAN_REVIEW=false：写进 OUTPUT_DIR 根（被 Albedo 监控）
         - REQUIRE_HUMAN_REVIEW=true：写进 OUTPUT_DIR/review_pending/
         元信息字段对齐下游 AlbedoInput：title / up_name / video_id / source_url / platform。
         frontmatter 含：计数 / 互动率(赞率·藏率·币率·弹幕密度) / 弹幕去重前后计数 /
-        标签与 keywords(=标签, 直供熔知) / 有无 AI 摘要 / 抓取时间 fetched_at。
-        正文分节：# 字幕 # AI 摘要 # 高光时间点 # 弹幕(去重过滤后) # 高赞评论 # 统计历史。
+        评论统计 / keywords(=视频标签, 直供熔知关键词, 不再另写 tags 避免混淆) /
+        播放分析(创作者私有, 需UP主登录) / 有无 AI 摘要 / 抓取时间 fetched_at。
+        正文分节：# 字幕 # AI 摘要 # 高光时间点 # 弹幕(去重过滤后)
+                 # 置顶评论 # 高赞评论 # 播放分析 # 统计历史。
         """
         if not subtitle or not getattr(subtitle, "full_text", "").strip():
             return []
@@ -232,12 +247,25 @@ class DownloadManager:
         dm_before = len(danmakus) if danmakus else 0
         dm_after = len(clean_dm)
 
-        # —— 高赞评论（已按点赞排序，取前 50）——
-        top_comments = (comments or [])[:50]
+        # —— 高赞评论（先去无意义水评，再取点赞排序前 50）——
+        clean_comments = self._clean_comments(comments)
+        top_comments = clean_comments[:50]
 
-        # —— 标签 / keywords（=标签，直供熔知）——
+        # —— 置顶评论（与常规评论按 rpid 去重，避免重复）——
+        comment_rpids = {c.get("rpid") for c in (comments or []) if c.get("rpid")}
+        pinned = [p for p in (pinned_comments or [])
+                  if p.get("rpid") not in comment_rpids]
+
+        # —— 关键词（=视频标签，直供熔知关键词；不再另写 tags 字段）——
         tag_list = tags or []
         has_ai = bool(ai_conclusion and str(ai_conclusion).strip())
+
+        # —— 播放分析（创作者私有；非自有视频/未登录则为空）——
+        pa = play_analysis or {}
+        pa_available = bool(pa)
+        pa_three = pa.get("three_sec_retention")
+        pa_avg = pa.get("avg_play_duration")
+        pa_finish = pa.get("completion_rate")
 
         # —— 高光时间点 ——
         highlights = []
@@ -304,9 +332,13 @@ class DownloadManager:
             f"danmaku_junk_removed: {_scalar(junk_n)}",
             f"comments_order: {_scalar('like')}",
             f"comments_included: {_scalar(len(top_comments))}",
-            f"tags: {_flow_list(tag_list)}",
+            f"pinned_comments_included: {_scalar(len(pinned))}",
             f"keywords: {_flow_list(tag_list)}",
             f"has_ai_conclusion: {_scalar(has_ai)}",
+            f"play_analysis_available: {_scalar(pa_available)}",
+            f"three_sec_retention: {_scalar(pa_three)}",
+            f"avg_play_duration: {_scalar(pa_avg)}",
+            f"completion_rate: {_scalar(pa_finish)}",
             "---",
         ]
 
@@ -332,6 +364,16 @@ class DownloadManager:
                 if txt:
                     body.append(f"[{t:.0f}s] {txt}")
             body.append("")
+        if pinned:
+            body.append("# 置顶评论")
+            for c in pinned:
+                user = c.get("user", "") or ""
+                likes = c.get("likes", 0) or 0
+                pin_tag = "UP主置顶" if c.get("pin_type") == "upper" else "管理员置顶"
+                txt = (c.get("text") or "").replace("\n", " ").strip()
+                if txt:
+                    body.append(f"[{likes}赞 · {pin_tag}] {user}: {txt}")
+            body.append("")
         if top_comments:
             body.append("# 高赞评论")
             for c in top_comments:
@@ -340,6 +382,12 @@ class DownloadManager:
                 txt = (c.get("text") or "").replace("\n", " ").strip()
                 if txt:
                     body.append(f"[{likes}赞] {user}: {txt}")
+            body.append("")
+        if pa_available:
+            body.append("# 播放分析（创作者私有数据·需UP主登录）")
+            body.append(f"- 三秒退出率 / 三秒播放率: {pa_three if pa_three is not None else '未提供'}")
+            body.append(f"- 平均播放时长: {pa_avg if pa_avg is not None else '未提供'}")
+            body.append(f"- 完播率: {pa_finish if pa_finish is not None else '未提供'}")
             body.append("")
         body.append("# 统计历史")
         body.extend(history_lines)
@@ -397,6 +445,46 @@ class DownloadManager:
             seen.add(key)
             kept.append({"time": t, "text": txt})
         return kept, dup_n, junk_n
+
+    def _clean_comments(self, comments):
+        """
+        高赞评论去水（2026-07-15）：
+        在「按点赞排序」之后、截取前 N 之前，剔除无意义的高赞评论——
+        纯符号 / 超短 / 低信息水帖（学到了/收藏了/666/前排/催更 等）。
+        返回清洗后的列表（保留 time/user/likes/rpid/pinned 等原字段）。
+        """
+        if not comments:
+            return []
+        JUNK = {
+            "学到了", "收藏了", "马住了", "码住了", "马克", "mark", "mark一下", "记下了",
+            "前排", "沙发", "板凳", "三连", "已三连", "三连了", "补个三连",
+            "666", "6666", "233", "2333", "哈哈", "哈哈哈", "哈哈哈哈", "笑死",
+            "牛", "牛逼", "牛批", "博主牛", "up牛", "up主牛", "大佬牛",
+            "赞", "好看", "支持", "来了", "打卡", "签到", "蹲", "蹲一个", "催更", "催更了",
+            "顶", "沙发板凳", "前排占座", "抢前排", "路过", "围观", "占个楼",
+            "已收藏", "已点赞", "已投币", "已关注", "关注了", "粉了", "路转粉",
+            "感谢分享", "谢谢分享", "感谢up", "谢谢up", "辛苦了", "鼓掌", "爪巴",
+        }
+        kept = []
+        for c in comments:
+            txt = (c.get("text") or "").strip()
+            if not txt:
+                continue
+            key = re.sub(r"\s+", "", txt).lower()
+            # 超短（≤2 字）且无信息量
+            if len(txt) <= 2:
+                continue
+            # 纯符号 / 表情
+            if re.fullmatch(r"[\W_]+", txt):
+                continue
+            # 低信息水帖（短评且命中水词）
+            if len(txt) <= 8 and key in JUNK:
+                continue
+            # 纯情绪词 + 标点（如 "哈哈哈哈！！！"）
+            if re.fullmatch(r"[\W_]*[哈呵嘻哦哎咦额吼]+[\W_]*", txt):
+                continue
+            kept.append(c)
+        return kept
 
     def _read_history_lines(self, md_path):
         """

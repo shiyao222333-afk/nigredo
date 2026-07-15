@@ -20,6 +20,25 @@ BV_PATTERN = re.compile(r"(BV[a-zA-Z0-9]{10})")
 B23_PATTERN = re.compile(r"(b23\.tv/[a-zA-Z0-9]+)")
 
 
+def _find_bvid_item(obj, bvid: str):
+    """在未知的播放分析响应结构中递归查找含目标 bvid 的条目。"""
+    if isinstance(obj, dict):
+        for key in ("bvid", "BV", "bvid_str"):
+            v = obj.get(key)
+            if isinstance(v, str) and v.upper() == bvid.upper():
+                return obj
+        for v in obj.values():
+            r = _find_bvid_item(v, bvid)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for item in obj:
+            r = _find_bvid_item(item, bvid)
+            if r is not None:
+                return r
+    return None
+
+
 class BilibiliPlatform:
     """B站平台适配器"""
 
@@ -373,6 +392,8 @@ class BilibiliPlatform:
                         "user": r.get("member", {}).get("uname", ""),
                         "likes": r.get("like", 0),
                         "time": r.get("ctime", 0),
+                        "rpid": r.get("rpid"),
+                        "pinned": False,
                     })
                     if len(comments) >= max_count:
                         break
@@ -381,10 +402,58 @@ class BilibiliPlatform:
             logger.warning(f"评论获取失败（已返回部分结果）: {e}")
         return comments
 
+    def get_pinned_comments(self, video_id: str) -> list[dict]:
+        """获取视频置顶评论（UP主置顶 + 管理员置顶），标 pinned=True。
+
+        置顶评论不在常规 replies 列表里，而是位于评论接口响应的
+        data.top.upper / data.top.admin，需单独提取。
+        """
+        self._ensure_api()
+        pinned = []
+        try:
+            from bilibili_api import comment as comment_api
+            from bilibili_api.comment import CommentResourceType, OrderType
+            video = self._api.video.Video(bvid=video_id, credential=self._credential)
+            info = self._run_async(video.get_info())
+            aid = info.get("aid")
+            if not aid:
+                return pinned
+            resp = self._run_async(
+                comment_api.get_comments(
+                    oid=aid,
+                    type_=CommentResourceType.VIDEO,
+                    page_index=1,
+                    order=OrderType.TIME,
+                    credential=self._credential,
+                )
+            )
+            top = (resp or {}).get("top") or {}
+            for pin_key in ("upper", "admin"):
+                c = top.get(pin_key)
+                if isinstance(c, dict):
+                    msg = c.get("content", {}).get("message", "")
+                    if msg:
+                        pinned.append({
+                            "text": msg,
+                            "user": c.get("member", {}).get("uname", ""),
+                            "likes": c.get("like", 0),
+                            "time": c.get("ctime", 0),
+                            "rpid": c.get("rpid"),
+                            "pinned": True,
+                            "pin_type": pin_key,
+                        })
+        except Exception as e:
+            logger.warning(f"置顶评论获取失败: {e}")
+        return pinned
+
     # ── 标签 / AI 摘要 / 高光时间点 ──
 
     def get_tags(self, video_id: str) -> list:
-        """获取视频标签（topic tags），下游直供熔知 keywords。"""
+        """获取视频标签（topic tags）。
+
+        这些标签直供熔知关键词——中转①文件只写 `keywords` 字段（值=视频标签），
+        不再另写 `tags`，避免字段概念混淆（爬下来的 tag 即熔知的 keyword）。
+        """
         self._ensure_api()
         try:
             video = self._api.video.Video(bvid=video_id, credential=self._credential)
@@ -444,6 +513,49 @@ class BilibiliPlatform:
         except Exception as e:
             logger.warning(f"高光时间点获取失败: {e}")
             return []
+
+    def get_play_analysis(self, video_id: str) -> dict:
+        """获取视频播放分析（创作者数据中心私有指标）。
+
+        仅当你以 UP主 身份登录（BILIBILI_COOKIE 配置了有效 SESSDATA）时可用，
+        且只能查你「自己」的稿件。对他人的视频、或未登录时返回空 dict。
+        防御式提取：在响应中按 bvid 定位条目，取已知的三个指标字段；
+        字段名若与预期不符则留空，绝不编造。
+
+        返回: {three_sec_retention, avg_play_duration, completion_rate}（可能不全）
+        """
+        self._ensure_api()
+        if self._credential is None:
+            return {}
+        try:
+            from bilibili_api import creative_center
+            data = self._run_async(
+                creative_center.get_video_playanalysis(credential=self._credential)
+            )
+            item = _find_bvid_item(data, video_id)
+            if not item:
+                return {}
+            metrics = {}
+            for src, dst in (
+                ("finish_play_rate", "completion_rate"),
+                ("completion_rate", "completion_rate"),
+                ("play_rate", "completion_rate"),
+                ("finish_rate", "completion_rate"),
+                ("avg_play_time", "avg_play_duration"),
+                ("avg_time", "avg_play_duration"),
+                ("avg_play_duration", "avg_play_duration"),
+                ("average_play_duration", "avg_play_duration"),
+                ("three_sec_play_rate", "three_sec_retention"),
+                ("three_sec_rate", "three_sec_retention"),
+                ("three_sec_retention", "three_sec_retention"),
+                ("drop_rate", "three_sec_retention"),
+            ):
+                if src in item and item[src] is not None:
+                    metrics[dst] = item[src]
+            return metrics
+        except Exception as e:
+            logger.warning(f"播放分析获取失败（需UP主登录且为自有稿件）: {e}")
+            return {}
 
     # ── 辅助 ─────────────────────────────
 

@@ -11,18 +11,20 @@
 ### Added
 - **B站结构化分析数据合并落盘（单文件）**（`core/downloader.py` + `platforms/bilibili.py`）：处理 B站视频时除字幕外，新增读取并落盘——
   - **弹幕**：全文读取后做去重 + 去废（纯符号 / 超短 / 打卡类水帖 / 重复刷屏，去掉大部分无用弹幕）；frontmatter 记录去重前后计数（`danmaku_total_before` / `danmaku_after_dedup_filter` / `_duplicates_removed` / `_junk_removed`）。
-  - **高赞评论**：按点赞排序只取前 50 条关键评论（不再全量下载）。
-  - **视频标签**：读取 topic tags，同时写入 frontmatter 的 `tags` 与 `keywords`（直供熔知关键词，免二次抽取）。
+  - **高赞评论**：按点赞排序后先剔除无意义水评（学到了/收藏了/666/哈哈哈/催更 等）再取前 50 条关键评论（不再全量下载，且过滤低信息评论）。
+  - **视频标签**：读取 topic tags，写入 frontmatter 的 `keywords`（即熔知关键词，免二次抽取；**不再另写 `tags` 字段**，避免与 keywords 概念混淆——爬下来的 tag 就是熔知的关键词）。
+  - **置顶评论**（`get_pinned_comments`）：从评论接口 `data.top` 提取 UP主/管理员置顶评论，单独写入正文 `# 置顶评论` 章节（与常规评论按 rpid 去重，避免重复）。
+  - **播放分析（创作者私有数据）**（`get_play_analysis`）：登录态下经 `creative_center.get_video_playanalysis` 按 bvid 提取「三秒退出率 / 平均播放时长 / 完播率」，写入 frontmatter（`play_analysis_available` / `three_sec_retention` / `avg_play_duration` / `completion_rate`）与正文 `# 播放分析` 章节；**仅自有稿件可用、需 UP主 登录，他人视频/未登录则字段留空不编造**。
   - **B站 AI 摘要**（`get_ai_conclusion`）：写入正文 `# AI 摘要` 章节。
   - **高能进度条 / 高光时间点**（`get_pbp`）：转为 `[mm:ss] 内容` 列表写入 `# 高光时间点` 章节。
   - **互动率分析**：frontmatter 增加 `like_rate` / `favorite_rate` / `coin_rate` / `danmaku_density_per_min`；正文 `# 统计历史` 按抓取时间累加每次的播放 / 赞 / 币 / 藏 / 弹幕去重前后计数（多次抓取不覆盖）。
-  - 所有字段合并写入唯一的中转①文件 `{bv}.md`（YAML frontmatter + `# 字幕 # AI 摘要 # 高光时间点 # 弹幕 # 高赞评论 # 统计历史` 结构化章节），**不再生成 `_danmaku.txt` / `_comments.txt` sidecar**，方便炼真整文件读取分析。frontmatter 含抓取时间 `fetched_at`（+08:00）。
+  - 所有字段合并写入唯一的中转①文件 `{bv}.md`（YAML frontmatter + `# 字幕 # AI 摘要 # 高光时间点 # 弹幕 # 置顶评论 # 高赞评论 # 播放分析 # 统计历史` 结构化章节），**不再生成 `_danmaku.txt` / `_comments.txt` sidecar**，方便炼真整文件读取分析。frontmatter 含抓取时间 `fetched_at`（+08:00）。
 
 ### Fixed
 - **评论接口修正**（`platforms/bilibili.py`）：`get_comments` 改用 `bilibili_api.comment.get_comments(oid=aid, type_=CommentResourceType.VIDEO, ...)`，先经 `video.get_info()` 取 av 号(aid) 作 oid。旧 `video.get_comments()` 在 bilibili-api v17+ 已不存在（`AttributeError`）。
 
 ### Changed
-- 中转① frontmatter 增加统计 / 分析字段；架构上明确：馏析只负责"采集 + 结构化落盘"，数据经炼真精炼后才进熔知（无"馏析直供熔知"）；视频标签即熔知关键词，故 `keywords` 与 `tags` 同值。
+- 中转① frontmatter 增加统计 / 分析字段；架构上明确：馏析只负责"采集 + 结构化落盘"，数据经炼真精炼后才进熔知（无"馏析直供熔知"）；视频标签即熔知关键词，中转文件仅写 `keywords`（=视频标签）直供熔知，不再另写 `tags` 避免概念混淆。
 
 ## [0.1.1] - 2026-07-12
 

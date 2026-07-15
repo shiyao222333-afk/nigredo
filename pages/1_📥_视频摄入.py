@@ -83,8 +83,17 @@ if submit and url:
             )
             dm_n = len(result.get("danmakus") or [])
             cm_n = len(result.get("comments") or [])
-            if dm_n or cm_n:
-                st.caption(f"📥 已读取弹幕 {dm_n} 条、评论 {cm_n} 条（写入 sidecar 文件，供炼真/分析消费）")
+            pin_n = len(result.get("pinned_comments") or [])
+            pa = result.get("play_analysis") or {}
+            if dm_n or cm_n or pin_n:
+                parts = [f"弹幕 {dm_n} 条", f"评论 {cm_n} 条", f"置顶 {pin_n} 条"]
+                vid = result.get("video_id", "")
+                st.caption(
+                    f"📥 已读取：{'、'.join(parts)}"
+                    f"（已合并进唯一中转文件 {vid}.md，供炼真整文件读取）"
+                )
+            if pa:
+                st.caption("📊 播放分析已抓取：3秒退出率 / 平均播放时长 / 完播率（需 UP主 登录）")
             
             # 显示字幕
             subtitle = result.get("subtitle")
