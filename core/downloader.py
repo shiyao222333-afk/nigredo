@@ -198,6 +198,41 @@ class DownloadManager:
             logger.info(f"字幕已落盘({len(saved)}个): {bv_id}")
         return saved
 
+    def _subtitle_lines_with_ts(self, subtitle) -> list:
+        """
+        把字幕对象转成「每行一条、带 [mm:ss] 时间戳」的列表，供下游 Albedo 按字幕条数锚定。
+
+        上游契约（2026-07-15 增强）：
+        - CC / AI 字幕 / Whisper 三条路径都会填充 subtitle.segments，
+          每项格式为 {"start": 秒(float), "end": 秒, "text": str}。
+        - 逐条写成 "[mm:ss] 文本"，一条字幕 = 一个天然信息块，
+          支撑内容线「高光前后 ±N 条字幕」「按条数锚定」需求。
+        - 若 segments 缺失（极旧中转文件 / 异常），降级为原 full_text 整块，向后兼容。
+        """
+        segs = getattr(subtitle, "segments", None) or []
+        out = []
+        for s in segs:
+            if isinstance(s, dict):
+                text = (s.get("text") or "").strip()
+                start = s.get("start", 0)
+            else:
+                text = (getattr(s, "text", None) or "").strip()
+                start = getattr(s, "start", 0)
+            if not text:
+                continue
+            try:
+                start = float(start)
+            except (TypeError, ValueError):
+                start = 0
+            mm = int(start // 60)
+            ss = int(start % 60)
+            out.append(f"[{mm:02d}:{ss:02d}] {text}")
+        if out:
+            return out
+        # 降级：无 segments 时用原 full_text（保持旧行为）
+        ft = getattr(subtitle, "full_text", "") or ""
+        return [ft] if ft.strip() else []
+
     def _save_transit_md(self, bv_id: str, info, subtitle,
                          danmakus=None, comments=None,
                          tags=None, ai_conclusion="", pbp=None,
@@ -365,7 +400,7 @@ class DownloadManager:
         body = []
         body.append("")
         body.append("# 字幕")
-        body.append(subtitle.full_text)
+        body.extend(self._subtitle_lines_with_ts(subtitle))
         body.append("")
         if has_ai:
             body.append("# AI 摘要")

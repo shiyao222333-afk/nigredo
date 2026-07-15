@@ -21,6 +21,7 @@
   - **高能进度条 / 高光时间点**（`get_pbp`）：转为 `[mm:ss] 内容` 列表写入 `# 高光时间点` 章节。
   - **互动率分析**：frontmatter 增加 `like_rate` / `favorite_rate` / `coin_rate` / `danmaku_density_per_min`；正文 `# 统计历史` 按抓取时间累加每次的播放 / 赞 / 币 / 藏 / 弹幕去重前后计数（多次抓取不覆盖）。
   - 所有字段合并写入唯一的中转①文件 `{bv}.md`（YAML frontmatter + `# 字幕 # AI 摘要 # 高光时间点 # 弹幕 # 置顶评论 # 高赞评论 # 播放分析 # 播放来源 # 统计历史` 结构化章节），**不再生成 `_danmaku.txt` / `_comments.txt` sidecar**，方便炼真整文件读取分析。frontmatter 含抓取时间 `fetched_at`（+08:00）。频道级创作者数据另存 `creator_center.md`。
+  - **字幕逐条带时间戳落盘**（`core/downloader.py` `_subtitle_lines_with_ts()`）：中转① `# 字幕` 段由整块 `subtitle.full_text` 改为**逐条 `[mm:ss] 文本`**（CC/AI/Whisper 三路 `segments` 均含 `start`）。下游 Albedo 内容线据此实现「按字幕条数锚定」与「高光 ±15 条字幕窗口」；无 `segments` 时降级整块全文，向后兼容。
 
 ### Fixed
 - **评论接口修正**（`platforms/bilibili.py`）：`get_comments` 改用 `bilibili_api.comment.get_comments(oid=aid, type_=CommentResourceType.VIDEO, ...)`，先经 `video.get_info()` 取 av 号(aid) 作 oid。旧 `video.get_comments()` 在 bilibili-api v17+ 已不存在（`AttributeError`）。
