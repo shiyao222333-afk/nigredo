@@ -112,6 +112,12 @@ class DownloadManager:
         else:
             logger.warning(f"字幕生成失败: {bv_id}")
 
+        # 获取弹幕与评论（读取视频互动数据，供下游炼真/数据分析消费）
+        logger.info(f"获取弹幕与评论: {bv_id}")
+        danmakus = self._bilibili.get_danmaku(bv_id) or []
+        comments = self._bilibili.get_comments(bv_id) or []
+        logger.info(f"弹幕 {len(danmakus)} 条 / 评论 {len(comments)} 条")
+
         # 构建结果
         result = {
             "status": "done",
@@ -119,13 +125,15 @@ class DownloadManager:
             "info": info.__dict__,
             "audio_path": audio_path,
             "subtitle": subtitle.__dict__ if subtitle else None,
+            "danmakus": danmakus,
+            "comments": comments,
         }
         self.cache.mark_processed(bv_id, result)
         # 字幕落盘：转写结果原本只留内存，刷新即丢。这里额外存文件，
         # 供下游（如 Albedo 炼真）直接「选文件」摄入。
         self._save_subtitle_files(bv_id, subtitle)
         # 中转①落盘（文件夹契约）：写 {bv}.md 供 Albedo 炼真监控消费
-        self._save_transit_md(bv_id, info, subtitle)
+        self._save_transit_md(bv_id, info, subtitle, danmakus, comments)
         logger.info(f"处理完成: {bv_id}")
 
         return result
@@ -161,7 +169,8 @@ class DownloadManager:
             logger.info(f"字幕已落盘({len(saved)}个): {bv_id}")
         return saved
 
-    def _save_transit_md(self, bv_id: str, info, subtitle) -> list:
+    def _save_transit_md(self, bv_id: str, info, subtitle,
+                         danmakus=None, comments=None) -> list:
         """
         中转①落盘（文件夹契约，2026-07-12）：
         把处理结果写成 {bv_id}.md（YAML frontmatter 带元数据 + 正文=字幕），
@@ -170,6 +179,9 @@ class DownloadManager:
         - REQUIRE_HUMAN_REVIEW=true：写进 OUTPUT_DIR/review_pending/（待人工/总管晋级）
         元信息字段对齐 Albedo 的 AlbedoInput：title / up_name / video_id / source_url / platform。
         正文 = 字幕 full_text。
+        2026-07-15 增强：frontmatter 写入播放/点赞/投币/收藏/分享/评论/弹幕计数；
+        弹幕与评论全文写入 sidecar 文件 {bv}_danmaku.txt / {bv}_comments.txt（同目录），
+        供炼真/数据分析消费，不污染字幕正文语义。
         """
         if not subtitle or not getattr(subtitle, "full_text", "").strip():
             return []
@@ -178,6 +190,9 @@ class DownloadManager:
         def _scalar(v):
             return json.dumps(v, ensure_ascii=False)
 
+        def _stat(attr):
+            return getattr(info, attr, None)
+
         lines = [
             "---",
             f"platform: {_scalar(getattr(info, 'platform', 'bilibili'))}",
@@ -185,6 +200,13 @@ class DownloadManager:
             f"title: {_scalar(getattr(info, 'title', ''))}",
             f"up_name: {_scalar(getattr(info, 'author', ''))}",
             f"source_url: {_scalar(getattr(info, 'url', ''))}",
+            f"view_count: {_scalar(_stat('view_count'))}",
+            f"like_count: {_scalar(_stat('like_count'))}",
+            f"coin_count: {_scalar(_stat('coin_count'))}",
+            f"favorite_count: {_scalar(_stat('favorite_count'))}",
+            f"share_count: {_scalar(_stat('share_count'))}",
+            f"comment_count: {_scalar(_stat('comment_count'))}",
+            f"danmaku_count: {_scalar(_stat('danmaku_count'))}",
             "---",
             "",
             subtitle.full_text,
@@ -193,17 +215,53 @@ class DownloadManager:
         target_dir = OUTPUT_DIR
         if REQUIRE_HUMAN_REVIEW:
             target_dir = OUTPUT_DIR / "review_pending"
+        saved = []
         try:
             target_dir.mkdir(parents=True, exist_ok=True)
             md_path = target_dir / f"{bv_id}.md"
             md_path.write_text(content, encoding="utf-8")
+            saved.append(str(md_path))
             logger.info(
                 f"中转①已落盘: {md_path} (人审={'开' if REQUIRE_HUMAN_REVIEW else '关'})"
             )
-            return [str(md_path)]
         except Exception as e:
             logger.warning(f"中转① .md 落盘失败: {e}")
-            return []
+            return saved
+
+        # 弹幕 sidecar（全文，[时间] 文本）
+        if danmakus:
+            try:
+                dm_path = target_dir / f"{bv_id}_danmaku.txt"
+                dm_lines = []
+                for d in danmakus:
+                    t = d.get("time", 0) or 0
+                    txt = (d.get("text") or "").replace("\n", " ").strip()
+                    if txt:
+                        dm_lines.append(f"[{t:.0f}s] {txt}")
+                if dm_lines:
+                    dm_path.write_text("\n".join(dm_lines), encoding="utf-8")
+                    saved.append(str(dm_path))
+            except Exception as e:
+                logger.warning(f"弹幕 sidecar 落盘失败: {e}")
+
+        # 评论 sidecar（全文，[赞数] 用户: 文本）
+        if comments:
+            try:
+                cm_path = target_dir / f"{bv_id}_comments.txt"
+                cm_lines = []
+                for c in comments:
+                    user = c.get("user", "") or ""
+                    likes = c.get("likes", 0) or 0
+                    txt = (c.get("text") or "").replace("\n", " ").strip()
+                    if txt:
+                        cm_lines.append(f"[{likes}赞] {user}: {txt}")
+                if cm_lines:
+                    cm_path.write_text("\n".join(cm_lines), encoding="utf-8")
+                    saved.append(str(cm_path))
+            except Exception as e:
+                logger.warning(f"评论 sidecar 落盘失败: {e}")
+
+        return saved
 
     def _extract_subtitle_with_fallback(self, bv_id: str, audio_path: str):
         """

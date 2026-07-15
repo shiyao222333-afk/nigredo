@@ -345,10 +345,25 @@ class BilibiliPlatform:
         self._ensure_api()
         comments = []
         try:
+            from bilibili_api import comment as comment_api
+            from bilibili_api.comment import CommentResourceType
+            # 评论接口用 oid = aid（av号），需先从 bvid 取 aid
             video = self._api.video.Video(bvid=video_id, credential=self._credential)
+            info = self._run_async(video.get_info())
+            aid = info.get("aid")
+            if not aid:
+                logger.warning("评论获取失败：无法取得 aid")
+                return comments
             page = 1
             while len(comments) < max_count:
-                resp = self._run_async(video.get_comments(page_index=page))
+                resp = self._run_async(
+                    comment_api.get_comments(
+                        oid=aid,
+                        type_=CommentResourceType.VIDEO,
+                        page_index=page,
+                        credential=self._credential,
+                    )
+                )
                 if not resp.get("replies"):
                     break
                 for r in resp["replies"]:

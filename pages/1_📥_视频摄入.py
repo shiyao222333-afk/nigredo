@@ -68,6 +68,23 @@ if submit and url:
             st.markdown(f"**标题**：{info.get('title', '')}")
             st.markdown(f"**作者**：{info.get('author', '')}")
             st.markdown(f"**时长**：{info.get('duration_seconds', 0)} 秒")
+
+            # 显示视频数据（播放/点赞/投币/收藏/分享/评论/弹幕）
+            vc = info.get("view_count") or 0
+            lc = info.get("like_count") or 0
+            cc = info.get("coin_count") or 0
+            fc = info.get("favorite_count") or 0
+            sc = info.get("share_count") or 0
+            cmc = info.get("comment_count") or 0
+            dmc = info.get("danmaku_count") or 0
+            st.markdown(
+                f"**播放** {vc:,} ｜ **点赞** {lc:,} ｜ **投币** {cc:,} ｜ "
+                f"**收藏** {fc:,} ｜ **分享** {sc:,} ｜ **评论** {cmc:,} ｜ **弹幕** {dmc:,}"
+            )
+            dm_n = len(result.get("danmakus") or [])
+            cm_n = len(result.get("comments") or [])
+            if dm_n or cm_n:
+                st.caption(f"📥 已读取弹幕 {dm_n} 条、评论 {cm_n} 条（写入 sidecar 文件，供炼真/分析消费）")
             
             # 显示字幕
             subtitle = result.get("subtitle")
