@@ -15,10 +15,12 @@
   - **视频标签**：读取 topic tags，写入 frontmatter 的 `keywords`（即熔知关键词，免二次抽取；**不再另写 `tags` 字段**，避免与 keywords 概念混淆——爬下来的 tag 就是熔知的关键词）。
   - **置顶评论**（`get_pinned_comments`）：从评论接口 `data.top` 提取 UP主/管理员置顶评论，单独写入正文 `# 置顶评论` 章节（与常规评论按 rpid 去重，避免重复）。
   - **播放分析（创作者私有数据）**（`get_play_analysis`）：登录态下经 `creative_center.get_video_playanalysis` 按 bvid 提取「三秒退出率 / 平均播放时长 / 完播率」，写入 frontmatter（`play_analysis_available` / `three_sec_retention` / `avg_play_duration` / `completion_rate`）与正文 `# 播放分析` 章节；**仅自有稿件可用、需 UP主 登录，他人视频/未登录则字段留空不编造**。
+  - **播放来源分布（创作者私有数据）**（`get_video_source`）：登录态下读取播放来源占比。该接口是**频道级**（不带 bvid），故先按 bvid 递归查找是否有 per-video 行：找到则写入本视频 `# 播放来源` 章节（frontmatter `play_source_scope: video`）；找不到则退回频道聚合，仅在本视频注记「见 creator_center.md」（`play_source_scope: channel`）。字段名对不上则留空不编造。
+  - **账号级创作者中心快照（频道级·单独文件）**（`get_creator_center` → `creator_center.md`）：登录态下汇总整个账号的「概览(get_overview) / 视频分区占比(get_video_survey) / 粉丝概览(get_fan_overview) / 播放来源分布(get_video_source 频道聚合)」，**与单视频无关**，落盘为同目录 `creator_center.md`（每次运行覆盖更新，按进程缓存避免重复查 4 接口）。
   - **B站 AI 摘要**（`get_ai_conclusion`）：写入正文 `# AI 摘要` 章节。
   - **高能进度条 / 高光时间点**（`get_pbp`）：转为 `[mm:ss] 内容` 列表写入 `# 高光时间点` 章节。
   - **互动率分析**：frontmatter 增加 `like_rate` / `favorite_rate` / `coin_rate` / `danmaku_density_per_min`；正文 `# 统计历史` 按抓取时间累加每次的播放 / 赞 / 币 / 藏 / 弹幕去重前后计数（多次抓取不覆盖）。
-  - 所有字段合并写入唯一的中转①文件 `{bv}.md`（YAML frontmatter + `# 字幕 # AI 摘要 # 高光时间点 # 弹幕 # 置顶评论 # 高赞评论 # 播放分析 # 统计历史` 结构化章节），**不再生成 `_danmaku.txt` / `_comments.txt` sidecar**，方便炼真整文件读取分析。frontmatter 含抓取时间 `fetched_at`（+08:00）。
+  - 所有字段合并写入唯一的中转①文件 `{bv}.md`（YAML frontmatter + `# 字幕 # AI 摘要 # 高光时间点 # 弹幕 # 置顶评论 # 高赞评论 # 播放分析 # 播放来源 # 统计历史` 结构化章节），**不再生成 `_danmaku.txt` / `_comments.txt` sidecar**，方便炼真整文件读取分析。frontmatter 含抓取时间 `fetched_at`（+08:00）。频道级创作者数据另存 `creator_center.md`。
 
 ### Fixed
 - **评论接口修正**（`platforms/bilibili.py`）：`get_comments` 改用 `bilibili_api.comment.get_comments(oid=aid, type_=CommentResourceType.VIDEO, ...)`，先经 `video.get_info()` 取 av 号(aid) 作 oid。旧 `video.get_comments()` 在 bilibili-api v17+ 已不存在（`AttributeError`）。

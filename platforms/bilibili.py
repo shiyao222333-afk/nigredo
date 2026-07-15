@@ -39,6 +39,48 @@ def _find_bvid_item(obj, bvid: str):
     return None
 
 
+def _extract_source_distribution(node) -> dict:
+    """从播放来源节点提取 {来源名: 值}。兼容 list / dict 多种返回结构。
+
+    bilibili 来源分布接口返回结构不固定：可能是
+    - list of {name/title/source, value/ratio/percent/count}
+    - dict 整体即 名称->数值 分布
+    防御式提取，拿不到则返空 dict，绝不编造。
+    """
+    if not node:
+        return {}
+    candidates = []
+    if isinstance(node, dict):
+        for k in ("list", "source_list", "data", "result", "items", "source"):
+            v = node.get(k)
+            if isinstance(v, list) and v:
+                candidates = v
+                break
+        if not candidates:
+            flat = {
+                str(k): v for k, v in node.items()
+                if isinstance(v, (int, float)) and not isinstance(v, bool)
+            }
+            if flat:
+                return flat
+    elif isinstance(node, list):
+        candidates = node
+    out = {}
+    for c in candidates:
+        if isinstance(c, dict):
+            name = (
+                c.get("name") or c.get("title") or c.get("source")
+                or c.get("type_name") or c.get("key") or ""
+            )
+            val = (
+                c.get("value") or c.get("ratio") or c.get("percent")
+                or c.get("count") or c.get("play_count") or None
+            )
+            if name and val is not None:
+                out[str(name)] = val
+    return out
+
+
 class BilibiliPlatform:
     """B站平台适配器"""
 
@@ -49,6 +91,7 @@ class BilibiliPlatform:
         self.browser = browser
         self._api = None  # 惰性加载 bilibili-api
         self._wbi_mixin_key = None  # 缓存 WBI mixinKey（避免每次重新请求 nav）
+        self._creator_center_cache = None  # 账号级创作者中心快照缓存（按进程）
 
     # ── URL 解析 ──────────────────────────
 
@@ -556,6 +599,81 @@ class BilibiliPlatform:
         except Exception as e:
             logger.warning(f"播放分析获取失败（需UP主登录且为自有稿件）: {e}")
             return {}
+
+    def get_video_source(self, video_id: str) -> dict:
+        """获取播放来源分布（创作者数据中心私有指标）。
+
+        仅当你以 UP主 身份登录且为自有稿件时可用。bilibili_api 的
+        get_video_source 是**频道级**（不带 bvid），故先按 bvid 递归查找
+        是否有 per-video 行；找到则标 scope=video，否则退回频道聚合 scope=channel。
+        返回 {sources: {来源名: 比例/数值}, scope: 'video'|'channel'|'none'}。
+        防御式：字段对不上则 sources 为空。
+        """
+        self._ensure_api()
+        if self._credential is None:
+            return {"sources": {}, "scope": "none"}
+        try:
+            from bilibili_api import creative_center
+            data = self._run_async(
+                creative_center.get_video_source(credential=self._credential)
+            )
+            item = _find_bvid_item(data, video_id)
+            scope = "video" if item else "channel"
+            node = item if item else data
+            sources = _extract_source_distribution(node)
+            return {"sources": sources, "scope": scope if sources else "none"}
+        except Exception as e:
+            logger.warning(f"播放来源获取失败（需UP主登录且为自有稿件）: {e}")
+            return {"sources": {}, "scope": "none"}
+
+    def get_creator_center(self) -> dict:
+        """获取账号级创作者数据中心快照（频道级，非单视频）。
+
+        包含：概览(get_overview) / 视频分区占比(get_video_survey) /
+        粉丝概览(get_fan_overview) / 播放来源分布(get_video_source 频道聚合)。
+        需 UP主登录。结果按进程缓存，避免每个视频重复查 4 个接口。
+        返回 {} 表示未登录或全失败；否则为各块原始响应（已尽力防御）。
+        """
+        self._ensure_api()
+        if self._credential is None:
+            return {}
+        if self._creator_center_cache is not None:
+            return self._creator_center_cache
+        out = {}
+        try:
+            from bilibili_api import creative_center
+            try:
+                out["overview"] = self._run_async(
+                    creative_center.get_overview(credential=self._credential)
+                )
+            except Exception as e:
+                logger.warning(f"概览获取失败: {e}")
+            try:
+                out["survey"] = self._run_async(
+                    creative_center.get_video_survey(credential=self._credential)
+                )
+            except Exception as e:
+                logger.warning(f"分区占比获取失败: {e}")
+            try:
+                out["fan"] = self._run_async(
+                    creative_center.get_fan_overview(credential=self._credential)
+                )
+            except Exception as e:
+                logger.warning(f"粉丝概览获取失败: {e}")
+            try:
+                src = self._run_async(
+                    creative_center.get_video_source(credential=self._credential)
+                )
+                out["source"] = _extract_source_distribution(src)
+            except Exception as e:
+                logger.warning(f"来源获取失败: {e}")
+        except Exception as e:
+            logger.warning(f"创作者中心快照获取失败: {e}")
+            return {}
+        if not out:
+            return {}
+        self._creator_center_cache = out
+        return out
 
     # ── 辅助 ─────────────────────────────
 

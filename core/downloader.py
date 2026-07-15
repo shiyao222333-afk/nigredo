@@ -125,10 +125,16 @@ class DownloadManager:
         pbp = self._bilibili.get_pbp(bv_id) or []
         # 播放分析（创作者私有：3秒退出率/平均时长/完播率；非自有视频返回空）
         play_analysis = self._bilibili.get_play_analysis(bv_id) or {}
+        # 播放来源分布（创作者私有；按 bvid 递归找 per-video 行，否则退回频道聚合）
+        play_source = self._bilibili.get_video_source(bv_id) or {"sources": {}, "scope": "none"}
+        # 账号级创作者中心快照（频道级：概览/分区/粉丝/来源；按进程缓存）
+        creator_center = self._bilibili.get_creator_center() or {}
         logger.info(
             f"弹幕 {len(danmakus)} 条 / 评论 {len(comments)} 条 / "
             f"置顶 {len(pinned_comments)} 条 / 标签 {len(tags)} 个 / "
-            f"播放分析{'有' if play_analysis else '无'}"
+            f"播放分析{'有' if play_analysis else '无'} / "
+            f"播放来源(scope={play_source.get('scope')}) / "
+            f"创作者中心快照{'有' if creator_center else '无'}"
         )
 
         # 构建结果
@@ -154,7 +160,9 @@ class DownloadManager:
         self._save_transit_md(bv_id, info, subtitle, danmakus, comments,
                               tags, ai_conclusion, pbp,
                               pinned_comments=pinned_comments,
-                              play_analysis=play_analysis)
+                              play_analysis=play_analysis,
+                              play_source=play_source,
+                              creator_center=creator_center)
         logger.info(f"处理完成: {bv_id}")
 
         return result
@@ -193,11 +201,12 @@ class DownloadManager:
     def _save_transit_md(self, bv_id: str, info, subtitle,
                          danmakus=None, comments=None,
                          tags=None, ai_conclusion="", pbp=None,
-                         pinned_comments=None, play_analysis=None) -> list:
+                         pinned_comments=None, play_analysis=None,
+                         play_source=None, creator_center=None) -> list:
         """
         中转①落盘（合并单文件，2026-07-15 重写）：
         把「字幕 + 分析元数据 + 弹幕(去重过滤) + 置顶评论 + 高赞评论(去水) +
-        标签(=keywords) + AI摘要 + 高光 + 播放分析 + 统计历史」
+        标签(=keywords) + AI摘要 + 高光 + 播放分析 + 播放来源 + 统计历史」
         全部合并写成唯一的 {bv_id}.md（YAML frontmatter + 结构化正文），
         供下游 Albedo 炼真 直接整文件读取分析，无需再拼多个 sidecar。
         - REQUIRE_HUMAN_REVIEW=false：写进 OUTPUT_DIR 根（被 Albedo 监控）
@@ -205,9 +214,11 @@ class DownloadManager:
         元信息字段对齐下游 AlbedoInput：title / up_name / video_id / source_url / platform。
         frontmatter 含：计数 / 互动率(赞率·藏率·币率·弹幕密度) / 弹幕去重前后计数 /
         评论统计 / keywords(=视频标签, 直供熔知关键词, 不再另写 tags 避免混淆) /
-        播放分析(创作者私有, 需UP主登录) / 有无 AI 摘要 / 抓取时间 fetched_at。
+        播放分析(创作者私有, 需UP主登录) / 播放来源(创作者私有, scope 标注 video/channel) /
+        有无 AI 摘要 / 抓取时间 fetched_at。
         正文分节：# 字幕 # AI 摘要 # 高光时间点 # 弹幕(去重过滤后)
-                 # 置顶评论 # 高赞评论 # 播放分析 # 统计历史。
+                 # 置顶评论 # 高赞评论 # 播放分析 # 播放来源 # 统计历史。
+        另：账号级创作者中心快照(频道级)写入同目录 creator_center.md（与单视频无关）。
         """
         if not subtitle or not getattr(subtitle, "full_text", "").strip():
             return []
@@ -266,6 +277,12 @@ class DownloadManager:
         pa_three = pa.get("three_sec_retention")
         pa_avg = pa.get("avg_play_duration")
         pa_finish = pa.get("completion_rate")
+
+        # —— 播放来源（创作者私有；scope=video 为本视频，channel 为频道聚合）——
+        ps = play_source or {}
+        ps_sources = ps.get("sources") or {}
+        ps_scope = ps.get("scope") or "none"
+        ps_is_video = (ps_scope == "video" and bool(ps_sources))
 
         # —— 高光时间点 ——
         highlights = []
@@ -339,6 +356,8 @@ class DownloadManager:
             f"three_sec_retention: {_scalar(pa_three)}",
             f"avg_play_duration: {_scalar(pa_avg)}",
             f"completion_rate: {_scalar(pa_finish)}",
+            f"play_source_scope: {_scalar(ps_scope)}",
+            f"play_source_available: {_scalar(bool(ps_sources))}",
             "---",
         ]
 
@@ -389,6 +408,15 @@ class DownloadManager:
             body.append(f"- 平均播放时长: {pa_avg if pa_avg is not None else '未提供'}")
             body.append(f"- 完播率: {pa_finish if pa_finish is not None else '未提供'}")
             body.append("")
+        if ps_is_video:
+            body.append("# 播放来源（本视频·创作者私有数据·需UP主登录）")
+            for name, val in ps_sources.items():
+                body.append(f"- {name}: {val}")
+            body.append("")
+        elif ps_scope == "channel" and ps_sources:
+            body.append("# 播放来源（频道级聚合·详见同目录 creator_center.md）")
+            body.append(f"- 本视频无独立来源数据；频道聚合共 {len(ps_sources)} 类来源")
+            body.append("")
         body.append("# 统计历史")
         body.extend(history_lines)
         body.append("")
@@ -404,7 +432,46 @@ class DownloadManager:
             )
         except Exception as e:
             logger.warning(f"中转① .md 落盘失败: {e}")
+
+        # —— 账号级创作者中心快照（频道级，与单视频无关，单独文件）——
+        if creator_center:
+            try:
+                cc_path = target_dir / "creator_center.md"
+                cc_content = self._format_creator_center(creator_center, fetched_at)
+                cc_path.write_text(cc_content, encoding="utf-8")
+                saved.append(str(cc_path))
+                logger.info(f"创作者中心快照已落盘: {cc_path}")
+            except Exception as e:
+                logger.warning(f"创作者中心快照落盘失败: {e}")
         return saved
+
+    def _format_creator_center(self, data: dict, fetched_at: str) -> str:
+        """把账号级创作者中心快照格式化为 markdown（频道级，与单视频无关）。"""
+        def _block(title, obj):
+            if not obj:
+                return f"## {title}\n\n（无数据）\n"
+            return f"## {title}\n\n```json\n{json.dumps(obj, ensure_ascii=False, indent=2)}\n```\n"
+
+        parts = [
+            "---",
+            "type: creator_center_snapshot",
+            f"fetched_at: {fetched_at}",
+            "scope: channel",
+            "note: 账号级创作者数据中心快照，与单个视频无关；每次运行覆盖更新",
+            "---",
+            "",
+            "# 创作者数据中心快照（账号级·需UP主登录）",
+            "",
+            "> 本文件汇总你账号的频道级数据。每跑一次覆盖更新。",
+            ">",
+            "> 其中「播放来源分布」为频道聚合；单视频播放来源见各 {bv}.md 的 # 播放来源 章节。",
+            "",
+            _block("概览（近一周）", data.get("overview")),
+            _block("视频分区占比", data.get("survey")),
+            _block("粉丝概览", data.get("fan")),
+            _block("播放来源分布（频道聚合）", data.get("source")),
+        ]
+        return "\n".join(parts)
 
     def _clean_danmakus(self, danmakus):
         """
