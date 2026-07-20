@@ -248,11 +248,26 @@ class BilibiliPlatform:
                     Path(cookie_file).unlink()
                 except OSError:
                     pass
-        # 找到实际下载的文件（扩展名可能因转码而变化）
-        matches = sorted(Path(output_dir).glob(f"{video_id}.*"))
-        if not matches:
-            raise FileNotFoundError(f"yt-dlp 未生成音频文件: {output_path}.*")
-        return str(matches[0])
+        # 找到实际下载的文件。
+        # 🔧 修复(2026-07-19 线上故障)：同一 {video_id}.* 前缀在缓存目录会混入字幕副产品
+        # （{video_id}.txt / {video_id}.srt，由 _save_subtitle_files 写入），若直接取
+        # sorted(glob)[0] 会误把 .srt（字母序最前）当音频喂给 Whisper → 解码乱码
+        # 「tuple index out of range」。因此优先确切的 .wav（yt-dlp 被要求输出 wav），
+        # 兜底仅从「音频扩展名」挑选，从根上排除字幕/文本等副产品。
+        expected = Path(output_dir) / f"{video_id}.wav"
+        if expected.exists():
+            return str(expected)
+        AUDIO_EXTS = (".wav", ".m4a", ".aac", ".mp3", ".ogg", ".flac", ".opus")
+        candidates = sorted(
+            p for p in Path(output_dir).glob(f"{video_id}.*")
+            if p.suffix.lower() in AUDIO_EXTS
+        )
+        if not candidates:
+            raise FileNotFoundError(
+                f"yt-dlp 未生成音频文件: {output_path}.(audio)；"
+                f"缓存里疑似只有字幕副产品，请清理 {output_dir} 下 {video_id}.* 后重试"
+            )
+        return str(candidates[0])
 
     # ── 字幕提取 ──────────────────────────
 
@@ -470,7 +485,12 @@ class BilibiliPlatform:
                     credential=self._credential,
                 )
             )
-            top = (resp or {}).get("top") or {}
+            # bilibili_api 不同版本 get_comments 返回结构不同：
+            # 有的直接返回 data 字典（top 在顶层），有的返回含 code/data 的完整响应（top 在 data.top）。
+            # 两种都兼容，避免置顶评论因结构差异被漏抓。
+            _resp = resp or {}
+            _data = _resp.get("data") or _resp
+            top = (_data.get("top") or _resp.get("top")) or {}
             for pin_key in ("upper", "admin"):
                 c = top.get(pin_key)
                 if isinstance(c, dict):
