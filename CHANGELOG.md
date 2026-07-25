@@ -25,6 +25,7 @@
 
 ### Fixed
 - **评论接口修正**（`platforms/bilibili.py`）：`get_comments` 改用 `bilibili_api.comment.get_comments(oid=aid, type_=CommentResourceType.VIDEO, ...)`，先经 `video.get_info()` 取 av 号(aid) 作 oid。旧 `video.get_comments()` 在 bilibili-api v17+ 已不存在（`AttributeError`）。
+- **danmaku_count 语义澄清（D 类）**（`core/downloader.py`）：中转① frontmatter 的 `danmaku_count` 是实时在线弹幕数，与正文 `danmaku_total_before`（抓取候选数）易混淆，新增注释行说明二者区别；纯诊断增强，不碰逻辑。
 
 ### Changed
 - 中转① frontmatter 增加统计 / 分析字段；架构上明确：馏析只负责"采集 + 结构化落盘"，数据经炼真精炼后才进熔知（无"馏析直供熔知"）；视频标签即熔知关键词，中转文件仅写 `keywords`（=视频标签）直供熔知，不再另写 `tags` 避免概念混淆。

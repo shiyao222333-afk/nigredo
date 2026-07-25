@@ -6,6 +6,9 @@ set "PROJECT_DIR=%~dp0"
 if "%PROJECT_DIR:~-1%"=="\" set "PROJECT_DIR=%PROJECT_DIR:~0,-1%"
 cd /d "%PROJECT_DIR%"
 
+REM --- CUDA 模块加载: 保持 CUDA 默认 LAZY（不设置 CUDA_MODULE_LOADING 覆盖）。
+REM     实测 EAGER 救不活已坏态 GPU；真正恢复靠 acceptance harness 的几何退避冷却等 TDR 复位。
+
 echo **************************************************
 echo   * Nigredo v0.1.0 (Data Collection)  * Opus Magnum Front-Half
 echo   Port: 8502   *   One-click launcher

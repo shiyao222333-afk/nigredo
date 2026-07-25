@@ -11,6 +11,8 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 CACHE_DIR = DATA_DIR / "cache"
+CACHE_AUDIO_DIR = CACHE_DIR / "audio"      # 下载音频（ASR 输入），与字幕副产品物理隔离
+CACHE_OUTPUT_DIR = CACHE_DIR / "outputs"   # 字幕等生成物（.txt / .srt）
 REPORTS_DIR = DATA_DIR / "reports"
 
 # === 中转输出（文件夹契约） ===
@@ -33,12 +35,22 @@ BILIBILI_COOKIE = os.getenv("BILIBILI_COOKIE", "")
 BILIBILI_BROWSER = os.getenv("BILIBILI_BROWSER", "firefox")
 
 # === Whisper ===
-# GPU 自动探测：检测到 CUDA 设备就用显卡（转录快 5~10 倍），否则退回 CPU
-try:
-    import ctranslate2
-    _CUDA_AVAILABLE = ctranslate2.get_cuda_device_count() > 0
-except Exception:
-    _CUDA_AVAILABLE = False
+# ⚠️ 本机 ctranslate2 的 CUDA 路径在 7/18 系统更新后偶发段错误（0xC0000005 @ ucrtbase），
+# 且段错误无法被 try/except 捕获会直接杀进程。原代码在 import 时执行
+# `import ctranslate2` + `get_cuda_device_count()` 触发崩溃，导致整个 Nigredo 无法 import。
+# 故**不在 import 时探测 CUDA**，默认走 CPU；真正需要 GPU 时由 whisper 后端按需调用
+# probe_cuda()（失败/崩溃则回退 CPU）。当前默认 ASR_BACKEND=funasr 走 CPU 即可用。
+_CUDA_AVAILABLE = False
+
+
+def probe_cuda() -> bool:
+    """按需探测 CUDA（可能崩，调用方需自己包在子进程/容错里）。返回是否有可用显卡。"""
+    try:
+        import ctranslate2
+        return ctranslate2.get_cuda_device_count() > 0
+    except Exception:
+        return False
+
 
 if _CUDA_AVAILABLE:
     WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cuda")
@@ -54,11 +66,23 @@ HF_TOKEN = os.getenv("HF_TOKEN", "")
 # 用户若想用官方源，在 .env 设 HF_ENDPOINT=https://huggingface.co 覆盖即可。
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
+# === ASR 后端选择（模块化语音识别） ===
+# 同一套调用可切换不同语音识别引擎，切换只改这里，不动业务代码。
+# 可选值：whisper（faster-whisper / ctranslate2，原兜底引擎）
+#        funasr（阿里 FunASR SenseVoiceSmall，中文更准，MIT）
+#        fireredasr（小红书 FireRedASR，中文最强，预留未实现）
+# 各引擎依赖与硬件要求不同：whisper 依赖 ctranslate2（CUDA 部分本机崩，暂不可用）；
+# funasr 依赖 PyTorch（本机用 CPU 版可跑，中文更准）。切换只改这里，不动业务代码。
+# 注：whisper 的 CUDA 崩是显卡运行时被 7/18 系统更新影响，与系统是否“损坏”无关。
+ASR_BACKEND = os.getenv("ASR_BACKEND", "funasr").strip().lower()
+
 # === 调试 ===
 DEBUG = os.getenv("NIGREDO_DEBUG", "false").lower() == "true"
 
 # 创建必要目录
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+CACHE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

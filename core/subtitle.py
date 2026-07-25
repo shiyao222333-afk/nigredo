@@ -87,11 +87,47 @@ def _wrap_progress(ui_cb, fname):
     return _cb
 
 
+class NotAudioError(ValueError):
+    """传给 Whisper 的不是合法音频文件（如误传字幕 .srt / .txt）。"""
+
+
+def _looks_like_audio(path: str) -> bool:
+    """快速判定文件是否为合法音频容器，避免把字幕/文本误当音频喂给 Whisper。
+
+    优先看魔法字节（WAV / MP3(ID3) / OGG·Opus / FLAC / M4A·MP4），
+    兜底用 soundfile（faster-whisper 已依赖）试读头识别未知容器。
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(16)
+    except OSError:
+        return False
+    if head[:4] == b"RIFF" and head[8:12] == b"WAVE":
+        return True
+    if head[:4] in (b"ID3", b"OggS", b"fLaC"):
+        return True
+    if head[4:8] == b"ftyp":
+        return True
+    try:
+        import soundfile as sf
+        with sf.SoundFile(path) as f:
+            _ = f.frames
+        return True
+    except Exception:
+        return False
+
+
 def transcribe_with_whisper(audio_path: str, language: str = "zh") -> list[dict]:
     """
     使用 faster-whisper 进行 ASR。
     返回: [{"start": float, "end": float, "text": str}, ...]
     """
+    if not _looks_like_audio(audio_path):
+        raise NotAudioError(
+            f"传入 Whisper 的不是合法音频文件: {audio_path}\n"
+            f"很可能缓存目录里同前缀的字幕/文本副产品被误当音频。"
+            f"下载器应按扩展名取音频（见 bilibili.download_audio）。"
+        )
     global _whisper_model, _whisper_model_path
     size = WHISPER_MODEL_SIZE
     if not is_model_cached(size):

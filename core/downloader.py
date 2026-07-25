@@ -11,9 +11,9 @@ from datetime import datetime, timezone, timedelta
 
 from platforms import SubtitleResult
 from platforms.bilibili import BilibiliPlatform
-from core.subtitle import transcribe_with_whisper, format_subtitle_srt
+from core.subtitle import format_subtitle_srt
 from utils.cache import VideoCache
-from config import CACHE_DIR, BILIBILI_COOKIE, BILIBILI_BROWSER, OUTPUT_DIR, REQUIRE_HUMAN_REVIEW
+from config import CACHE_DIR, CACHE_AUDIO_DIR, CACHE_OUTPUT_DIR, BILIBILI_COOKIE, BILIBILI_BROWSER, OUTPUT_DIR, REQUIRE_HUMAN_REVIEW
 
 logging.basicConfig(
     level=logging.INFO,
@@ -103,7 +103,7 @@ class DownloadManager:
 
         # 下载音频
         logger.info(f"下载音频: {bv_id}")
-        audio_path = self._bilibili.download_audio(bv_id, str(CACHE_DIR))
+        audio_path = self._bilibili.download_audio(bv_id, str(CACHE_AUDIO_DIR))
         logger.info(f"音频下载完成: {audio_path}")
 
         # 提取字幕（优先 CC，失败则用 Whisper）
@@ -112,7 +112,16 @@ class DownloadManager:
         if subtitle and subtitle.full_text:
             logger.info(f"字幕生成成功，来源: {subtitle.source}")
         else:
-            logger.warning(f"字幕生成失败: {bv_id}")
+            # 🔧 修复(2026-07-19)：字幕是下游(炼真/熔知)必要输入；缺失时
+            # 不写缓存索引、不产出中转①，避免 status=done 让 is_processed 短路、
+            # 把失败静默固化进缓存（下次重跑看不到真因）。修复后可重跑。
+            logger.error(f"字幕生成失败（CC/AI/Whisper 三级均失败）: {bv_id}；不写缓存，等待重跑")
+            return {
+                "status": "failed_subtitle",
+                "video_id": bv_id,
+                "audio_path": audio_path,
+                "subtitle": None,
+            }
 
         # 获取弹幕与评论（读取视频互动数据，供下游炼真/数据分析消费）
         logger.info(f"获取弹幕与评论: {bv_id}")
@@ -178,7 +187,7 @@ class DownloadManager:
         """
         if not subtitle or not getattr(subtitle, "full_text", "").strip():
             return []
-        cache_dir = self.cache.cache_dir
+        cache_dir = CACHE_OUTPUT_DIR
         saved = []
         try:
             txt_path = cache_dir / f"{bv_id}.txt"
@@ -366,14 +375,17 @@ class DownloadManager:
             f"title: {_scalar(getattr(info, 'title', ''))}",
             f"up_name: {_scalar(getattr(info, 'author', ''))}",
             f"source_url: {_scalar(getattr(info, 'url', ''))}",
+            f"pubdate: {_scalar(getattr(info, 'published_at', '') or '')}",
             f"view_count: {_scalar(view)}",
             f"like_count: {_scalar(like)}",
             f"coin_count: {_scalar(coin)}",
             f"favorite_count: {_scalar(favorite)}",
             f"share_count: {_scalar(share)}",
             f"comment_count: {_scalar(comment)}",
+            f"# danmaku_count = 实时在线弹幕数（抓取候选数见 danmaku_total_before，已去重+过滤垃圾）",
             f"danmaku_count: {_scalar(danmaku)}",
             f"fetched_at: {_scalar(fetched_at)}",
+            f"subtitle_source: {_scalar(getattr(subtitle, 'source', 'unknown'))}",
             f"like_rate: {_scalar(like_rate)}",
             f"favorite_rate: {_scalar(fav_rate)}",
             f"coin_rate: {_scalar(coin_rate)}",
@@ -642,24 +654,25 @@ class DownloadManager:
         except Exception as e:
             logger.warning(f"AI 字幕提取失败，将使用 Whisper ASR: {e}")
 
-        # 3. AI 字幕不可用，尝试 Whisper ASR
+        # 3. 前两级字幕都不可用，回退到 ASR（具体引擎由 ASR_BACKEND 配置决定：whisper / funasr / ...）
         try:
-            logger.info(f"启动 Whisper ASR: {bv_id}")
-            whisper_segments = transcribe_with_whisper(audio_path)
+            from core.asr import get_asr_backend
+            backend = get_asr_backend()
+            logger.info(f"启动 ASR（后端={backend.name}）: {bv_id}")
+            asr_segments = backend.transcribe(audio_path)
 
-            # whisper_segments 已经是 [{"start": ..., "end": ..., "text": ...}, ...]
-            # 无需转换，直接用
-            segments = whisper_segments
-            full_text = "\n".join(s["text"] for s in whisper_segments)
+            # asr_segments 已经是 [{"start": ..., "end": ..., "text": ...}, ...]，无需转换
+            segments = asr_segments
+            full_text = "\n".join(s["text"] for s in asr_segments)
 
-            logger.info(f"Whisper ASR 完成，片段数: {len(segments)}")
+            logger.info(f"ASR 完成（后端={backend.name}），片段数: {len(segments)}")
             return SubtitleResult(
-                source="whisper",
+                source="whisper",  # 机器语音识别的统一来源标记（与字幕质量判定兼容）
                 language="zh",
                 segments=segments,
                 full_text=full_text,
             )
         except Exception as e:
-            logger.error(f"Whisper ASR 也失败: {e}")
+            logger.error(f"ASR 也失败: {e}")
             # 两者都失败，返回空结果
             return SubtitleResult(source="error", language="", full_text="")
