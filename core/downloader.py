@@ -161,6 +161,10 @@ class DownloadManager:
             "pbp": pbp,
             "play_analysis": play_analysis,
         }
+        # ASR 纠错（采集层统一纠错点）：静态词表 + 半自动候选。
+        # 必须在字幕落盘前完成；时间轴不变，仅纠正文字噪声（如英文专名音译）。
+        subtitle = self._apply_asr_correction(subtitle, info, tags, comments, pinned_comments)
+        result["subtitle"] = subtitle.__dict__ if subtitle else None
         self.cache.mark_processed(bv_id, result)
         # 字幕落盘：转写结果原本只留内存，刷新即丢。这里额外存文件，
         # 供下游（如 Albedo 炼真）直接「选文件」摄入。
@@ -628,12 +632,16 @@ class DownloadManager:
 
     def _extract_subtitle_with_fallback(self, bv_id: str, audio_path: str):
         """
-        提取字幕三级策略：CC → AI 字幕 → Whisper ASR
+        提取字幕策略：B站字幕优先 → 本地 ASR 兜底
 
         策略：
         1. 优先提取 B站 CC 字幕（人工校对，质量最高、最快）
         2. CC 不可用则直取 B站 AI 字幕（机器生成，纯网络、不需要 GPU）
-        3. AI 字幕也不可用，回退 Whisper ASR（慢、吃资源、但兜底）
+        3. 两级字幕都不可用，回退到本地 ASR（引擎由 ASR_BACKEND 选择：
+           whisper / funasr / funasr_nano / fireredasr 平级可选，默认 funasr）
+
+        说明：whisper 与 FunASR 同为语音转文字引擎，是平级的可选项，
+        不是"先 whisper 失败再上 ASR"的双兜底。具体跑哪个由 ASR_BACKEND 决定。
         """
 
         # 1. 尝试提取 CC 字幕
@@ -654,7 +662,7 @@ class DownloadManager:
         except Exception as e:
             logger.warning(f"AI 字幕提取失败，将使用 Whisper ASR: {e}")
 
-        # 3. 前两级字幕都不可用，回退到 ASR（具体引擎由 ASR_BACKEND 配置决定：whisper / funasr / ...）
+        # 3. 前两级字幕都不可用，回退到本地 ASR（引擎由 ASR_BACKEND 选择：whisper / funasr / funasr_nano 平级可选）
         try:
             from core.asr import get_asr_backend
             backend = get_asr_backend()
@@ -667,7 +675,7 @@ class DownloadManager:
 
             logger.info(f"ASR 完成（后端={backend.name}），片段数: {len(segments)}")
             return SubtitleResult(
-                source="whisper",  # 机器语音识别的统一来源标记（与字幕质量判定兼容）
+                source=backend.name,  # 真实引擎名（whisper/funasr/funasr_nano…），与字幕质量判定一致
                 language="zh",
                 segments=segments,
                 full_text=full_text,
@@ -676,3 +684,34 @@ class DownloadManager:
             logger.error(f"ASR 也失败: {e}")
             # 两者都失败，返回空结果
             return SubtitleResult(source="error", language="", full_text="")
+
+    def _apply_asr_correction(self, subtitle, info, tags=None, comments=None,
+                              pinned_comments=None):
+        """ASR 纠错（采集层统一纠错点）：静态词表 + 半自动候选。
+
+        只改字幕文字、不动时间轴。半自动候选写入建议文件供人工确认，
+        不直接改字幕（避免不可控误改）。返回（可能已修正的）SubtitleResult。
+        """
+        if subtitle is None or not getattr(subtitle, "segments", None):
+            return subtitle
+        from core.asr_hotwords import (
+            correct_segments, suggest_from_metadata,
+        )
+        title = getattr(info, "title", "") or ""
+        desc = getattr(info, "description", "") or ""
+        cand_texts = list(tags or []) + list(comments or []) + list(pinned_comments or [])
+        # 半自动：把元数据里的英文专名候选写进建议文件（供人工并入静态词表）
+        try:
+            suggest_from_metadata(title, desc, tags, cand_texts)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ASR 半自动候选建议失败（不影响主流程）: %s", e)
+        corrected = correct_segments(subtitle.segments)
+        if corrected == subtitle.segments:
+            return subtitle
+        new_full = "\n".join(s.get("text", "") for s in corrected)
+        return SubtitleResult(
+            source=subtitle.source,
+            language=subtitle.language,
+            segments=corrected,
+            full_text=new_full,
+        )

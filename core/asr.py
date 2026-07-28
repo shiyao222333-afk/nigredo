@@ -12,6 +12,7 @@
     "whisper"    → WhisperBackend    faster-whisper / ctranslate2（原兜底引擎，保留）
     "funasr"     → FunASRBackend     阿里 FunASR Paraformer-zh（中文 SOTA，原生句子级真实时间轴）
     "fireredasr" → FireRedASRBackend 小红书 FireRedASR（中文最强，预留，尚未安装）
+    "funasr_nano"→ FunASRNanoBackend  阿里 FunASR-Nano（中英混说 SOTA，GPU 优先；需 CUDA torch + 权重）
 
 想加新引擎：在 _REGISTRY 注册一个 ASRBackend 子类即可。
 """
@@ -84,6 +85,10 @@ class FunASRBackend(ASRBackend):
     #: 子进程偶发段错误时的重试上限
     MAX_RETRIES = 3
 
+    #: 模型与设备（子类 FunASRNanoBackend 覆盖以切换引擎）
+    MODEL = "paraformer"
+    DEVICE = "cpu"
+
     @staticmethod
     def _map_language(language: str) -> str:
         """SenseVoice 支持 auto/zh/en/yue/ja/ko，把通用 zh/en 映射过去，其余交给 auto。"""
@@ -111,7 +116,7 @@ class FunASRBackend(ASRBackend):
         # PATH（torch/lib + venv Scripts + System32/Windows）；worker 内部还会再前置
         # 一次 torch/lib 以绕开 add_dll_directory 的坏指针（WinError 206）。
         env = self._clean_env()
-        cmd = f'"{sys.executable}" "{worker}" "{audio_path}" "{lang}"'
+        cmd = f'"{sys.executable}" "{worker}" "{audio_path}" "{lang}" "{self.MODEL}" "{self.DEVICE}"'
         last_err = "unknown"
         for attempt in range(1, self.MAX_RETRIES + 1):
             try:
@@ -246,10 +251,33 @@ class FireRedASRBackend(ASRBackend):
         )
 
 
+class FunASRNanoBackend(FunASRBackend):
+    """阿里 FunASR-Nano-2512（中英混说 SOTA，GPU 优先）。
+
+    为什么用它替代 Paraformer-zh：
+    - Paraformer-zh 是纯中文模型，词表无英文，视频里的英文专名（Godot/Unity）
+      会被音译成一串中文字（「够呆」），顺流到炼真/熔知变成噪声。
+    - FunASR-Nano 原生中英混说，视频说 Godot 直接写 Godot，从根上消除音译噪声；
+      中文 CER 也更低（约 8% vs Paraformer 同级），且带字符级时间戳（可聚合成句子级）。
+
+    前置（需用户确认的安装动作，未就绪时本后端会优雅失败、不崩）：
+    - 在 Nigredo venv 安装 CUDA 版 torch（当前是 CPU 版）。
+    - 首次会自动下载 FunAudioLLM/Fun-ASR-Nano-2512 权重（约数百 MB）。
+
+    DEVICE="auto"：worker 内自动选 cuda（可用时）否则 cpu。其余（子进程隔离、
+    精简环境、重试、时间轴解析）全部复用 FunASRBackend，不重复造轮子。
+    """
+
+    name = "funasr_nano"
+    MODEL = "funasr_nano"
+    DEVICE = "auto"
+
+
 # === 注册表 + 工厂 ===
 _REGISTRY = {
     "whisper": WhisperBackend,
     "funasr": FunASRBackend,
+    "funasr_nano": FunASRNanoBackend,
     "fireredasr": FireRedASRBackend,
 }
 

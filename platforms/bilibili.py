@@ -314,7 +314,7 @@ class BilibiliPlatform:
         """通过 WBI 签名接口直取 B站 AI 字幕（机器生成，不在 CC 字幕列表内）。
 
         适用场景：视频没有人工 CC 字幕，但有 B站 自动生成的 AI 字幕。
-        纯网络请求、匿名即可（不需要登录 Cookie / GPU），比 Whisper ASR 快且免费。
+        纯网络请求、匿名即可（不需要登录 Cookie / GPU），比本地 ASR（Whisper/FunASR）快且免费。
 
         实现说明：player/wbi/v2 接口强制要求 w_rid 签名；而 bilibili_api 的
         Credential 类会强制要求登录态——因此这里绕过 Credential，直接用

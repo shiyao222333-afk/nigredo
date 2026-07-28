@@ -71,10 +71,11 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 # 可选值：whisper（faster-whisper / ctranslate2，原兜底引擎）
 #        funasr（阿里 FunASR SenseVoiceSmall，中文更准，MIT）
 #        fireredasr（小红书 FireRedASR，中文最强，预留未实现）
-# 各引擎依赖与硬件要求不同：whisper 依赖 ctranslate2（CUDA 部分本机崩，暂不可用）；
-# funasr 依赖 PyTorch（本机用 CPU 版可跑，中文更准）。切换只改这里，不动业务代码。
+# 各引擎依赖与硬件要求不同：funasr_nano 依赖 PyTorch+CUDA（GPU，默认，中文最准）；
+# funasr 依赖 PyTorch（CPU 版可跑，中文更准）；whisper 依赖 ctranslate2（CUDA 本机崩，暂不可用）。
+# 切换只改这里 / 环境变量 ASR_BACKEND，不动业务代码。
 # 注：whisper 的 CUDA 崩是显卡运行时被 7/18 系统更新影响，与系统是否“损坏”无关。
-ASR_BACKEND = os.getenv("ASR_BACKEND", "funasr").strip().lower()
+ASR_BACKEND = os.getenv("ASR_BACKEND", "funasr_nano").strip().lower()
 
 # === 调试 ===
 DEBUG = os.getenv("NIGREDO_DEBUG", "false").lower() == "true"

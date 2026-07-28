@@ -17,7 +17,7 @@ class VideoAnalysis:
 
     # 字幕
     subtitle_text: str = ""
-    subtitle_source: str = ""   # cc / whisper
+    subtitle_source: str = ""   # cc / ai / whisper / funasr / funasr_nano / fireredasr / error
 
     # 文档
     study_notes: str = ""       # 学习笔记
@@ -60,8 +60,15 @@ def analyze_single_video(
 
 
 def _judge_subtitle_quality(source: str) -> str:
+    """字幕质量判定：whisper 与 FunASR 同为本地语音识别引擎，平级归为 medium。
+
+    - cc：B站人工/官方字幕，质量最高
+    - ai：B站 AI 机器字幕
+    - whisper / funasr / funasr_nano / fireredasr：本地 ASR（whisper 与 FunASR 平级可选）
+    - 其余（error / 未知）：无有效字幕
+    """
     if source == "cc":
         return "high"
-    elif source == "whisper":
+    if source in ("ai", "whisper", "funasr", "funasr_nano", "fireredasr"):
         return "medium"
     return "low"
