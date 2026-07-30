@@ -44,3 +44,7 @@ desktop.ini
 
 # Stray phantom: Windows reserved device name, cannot be deleted programmatically
 nul
+
+# 运行时锁文件（filelock 消费器单例锁，不入库）
+data/queue_consumer.lock
+data/queue.lock
