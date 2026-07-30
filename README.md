@@ -1,7 +1,7 @@
 ![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Stage](https://img.shields.io/badge/Stage-v0.1.1-purple)
-![Streamlit](https://img.shields.io/badge/UI-Streamlit-ff4b4b)
+![Headless](https://img.shields.io/badge/UI-Headless-2ea44f)
 
 # 🜂 Nigredo · 馏析 — 外部数据采集引擎
 
@@ -118,10 +118,8 @@ flowchart TB
 
 ```
 nigredo/
-├── app.py                  # Streamlit 入口
-├── run.bat                 # 双击启动（任务队列模式，自动处理入队链接）
-├── run_queue.py            # 队列 drain 脚本
-├── pages/                  # UI 页面（摄入 / 文档输出 / 数据分析 / 引擎配置 / 关于）
+├── run.bat                 # 双击启动（无头常驻队列消费器，自动处理入队链接，无 Web 端口）
+├── run_queue.py            # 队列消费器（真实干活的无头入口，PID 锁防重复）
 ├── core/                   # 核心逻辑（下载 / 字幕 / 文档化 / 弹幕 / 评论 / 爆款 / 队列）
 ├── platforms/              # 平台适配器（一平台一文件，BasePlatform 抽象）
 ├── prompts/                # LLM Prompt 模板（学习笔记 / 脚本模仿 / 爆款分析）
@@ -142,7 +140,7 @@ nigredo/
 | 技术 | 用途 | 授权 |
 |---|---|---|
 | Python 3.11+ | 运行环境 | PSF |
-| Streamlit | Web UI | Apache-2.0 |
+| 无头常驻（队列消费）| 摄入管线 | 无（纯 Python） |
 | yt-dlp | 视频下载引擎（1700+ 站） | Unlicense |
 | faster-whisper | 语音转文字（中文 large-v3 + CUDA 加速） | MIT |
 | bilibili-api-python | B站信息 / AI 字幕（WBI 签名） | MIT |
@@ -170,10 +168,10 @@ nigredo/
 cd D:\nigredo
 pip install -r requirements.txt
 cp .env.example .env          # 填 BILIBILI_COOKIE / KB_LLM_API_KEY
-streamlit run app.py          # 打开 http://127.0.0.1:8502
+run.bat                       # 无头常驻启动队列消费器（无 Web 端口）
 ```
 
-**任务队列模式**（开机自动处理）：双击 `run.bat` —— 先 drain `data/queue.json` 里的链接，再起 UI，无需手动粘贴。
+**任务队列模式**（开机自动处理）：双击 `run.bat` —— 先 drain `data/queue.json` 里的链接，再起无头消费器常驻处理，无需手动粘贴。
 
 ---
 

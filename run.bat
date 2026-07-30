@@ -1,17 +1,14 @@
 @echo off
 chcp 437 >nul
-title Nigredo v0.1.0 - Data Collection Engine
+title Nigredo v0.1.0 - Data Collection Engine (headless)
 setlocal enabledelayedexpansion
 set "PROJECT_DIR=%~dp0"
 if "%PROJECT_DIR:~-1%"=="\" set "PROJECT_DIR=%PROJECT_DIR:~0,-1%"
 cd /d "%PROJECT_DIR%"
 
-REM --- CUDA 模块加载: 保持 CUDA 默认 LAZY（不设置 CUDA_MODULE_LOADING 覆盖）。
-REM     实测 EAGER 救不活已坏态 GPU；真正恢复靠 acceptance harness 的几何退避冷却等 TDR 复位。
-
 echo **************************************************
 echo   * Nigredo v0.1.0 (Data Collection)  * Opus Magnum Front-Half
-echo   Port: 8502   *   One-click launcher
+echo   * Headless queue consumer (no web UI)
 echo **************************************************
 echo.
 
@@ -34,41 +31,20 @@ if exist "%PROJECT_DIR%\venv\Scripts\python.exe" (
 )
 
 REM --- Dependency check ---
-%PY% -c "import streamlit, yt_dlp, bilibili_api" >nul 2>&1
+%PY% -c "import yt_dlp, bilibili_api" >nul 2>&1
 if errorlevel 1 (
     echo [INSTALL] Installing dependencies...
     %PY% -m pip install -r "%PROJECT_DIR%\requirements.txt"
 )
 
-REM --- Kill old process on port 8502 ---
-powershell -Command "Get-NetTCPConnection -LocalPort 8502 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
-timeout /t 2 >nul
-
-REM --- Drain queue (AI writes tasks; user runs them on startup) ---
-echo [QUEUE] Checking pending queue...
-%PY% run_queue.py
+REM --- Start resident queue consumer (headless, no web UI) ---
+echo [START] Starting Nigredo queue consumer (resident, headless)...
+start "" "%PY%" run_queue.py
 if errorlevel 1 (
-    echo [QUEUE] Queue processing had errors (see log above), continuing...
+    echo [ERROR] Failed to launch queue consumer.
+    exit /b 1
 )
 
-REM --- Launch ---
-echo [START] Nigredo on http://127.0.0.1:8502
-start "" http://127.0.0.1:8502
-%PY% -m streamlit run app.py --server.port 8502
-set EXIT_CODE=%errorlevel%
-if %EXIT_CODE% NEQ 0 goto error_exit
-goto normal_exit
-
-:error_exit
-echo.
-echo ==================================================
-echo   App exited abnormally (exit code %EXIT_CODE%)
-echo   Check error messages above
-echo ==================================================
-pause
-cmd /k
-
-:normal_exit
-echo.
-echo [STOP] App stopped.
-pause
+echo [OK] Nigredo consumer launched. It processes the queue automatically.
+echo      (Single-instance enforced by PID lock: data/queue_consumer.lock)
+exit /b 0
