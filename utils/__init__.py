@@ -15,6 +15,7 @@ def extract_cookies_from_edge() -> str:
              "--print", "cookies"],
             capture_output=True, text=True, timeout=30,
             env={"HOME": str(Path.home())},
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if result.returncode == 0 and result.stdout.strip():
             return parse_ytdlp_cookie_header(result.stdout.strip())
@@ -31,6 +32,7 @@ def extract_cookies_from_firefox() -> str:
              "--print", "cookies"],
             capture_output=True, text=True, timeout=30,
             env={"HOME": str(Path.home())},
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if result.returncode == 0 and result.stdout.strip():
             return parse_ytdlp_cookie_header(result.stdout.strip())

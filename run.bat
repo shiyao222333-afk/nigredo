@@ -30,6 +30,13 @@ if exist "%PROJECT_DIR%\venv\Scripts\python.exe" (
     )
 )
 
+REM --- Windowless interpreter (pythonw.exe): queue consumer must not pop a console window ---
+if exist "%PROJECT_DIR%\venv\Scripts\pythonw.exe" (
+    set "PYW=%PROJECT_DIR%\venv\Scripts\pythonw.exe"
+) else (
+    set "PYW=%PY%"
+)
+
 REM --- Dependency check ---
 %PY% -c "import yt_dlp, bilibili_api" >nul 2>&1
 if errorlevel 1 (
@@ -39,7 +46,7 @@ if errorlevel 1 (
 
 REM --- Start resident queue consumer (headless, no web UI) ---
 echo [START] Starting Nigredo queue consumer (resident, headless)...
-start "" "%PY%" run_queue.py
+start "" "%PYW%" run_queue.py
 if errorlevel 1 (
     echo [ERROR] Failed to launch queue consumer.
     exit /b 1

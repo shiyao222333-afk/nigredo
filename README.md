@@ -34,7 +34,7 @@
 1. **字幕引擎可切换**：优先平台 CC/AI 字幕；缺时由 ASR 引擎转写，whisper 与 FunASR-Nano（GPU，中文更准+专名纠错）平级可选。
 2. **平台深度定制**：不只下载视频，还抓弹幕 / 评论 / 数据分析（竞品只做通用处理）。
 3. **独家提炼**：脚本模仿（拆解 + 话术模板）+ 爆款横向对比，竞品没有。
-4. **任务队列**：`run.bat` 开机自动处理队列，无需手动粘贴。
+4. **任务队列**：`run.bat` 开机自动处理队列，无需手动粘贴；队列单例锁已升级为「角色 + 心跳」JSON 锁 + PID 感知孤儿锁（根治 PID 复用 / SIGKILL 孤儿 / 僵尸进程导致的队列冻结，消费者挂掉 120s 内自愈拉起）。
 5. **全本地 / 自托管**：不依赖商业 API，数据不出本机。
 6. **五器飞轮**：产出直连炼真提纯、熔知入库，形成数据闭环。
 
@@ -172,6 +172,13 @@ run.bat                       # 无头常驻启动队列消费器（无 Web 端�
 ```
 
 **任务队列模式**（开机自动处理）：双击 `run.bat` —— 先 drain `data/queue.json` 里的链接，再起无头消费器常驻处理，无需手动粘贴。
+
+## 📚 文档导航
+
+- 📜 项目宪法：[BLUEPRINT.md](BLUEPRINT.md)
+- 🗺️ 开发路线：[PROJECT_PLAN.md](PROJECT_PLAN.md)
+- 🔧 流程框图：[FLOWCHART.md](FLOWCHART.md)
+- 🔬 竞品分析：[docs/competitor-analysis.md](docs/competitor-analysis.md)
 
 ---
 

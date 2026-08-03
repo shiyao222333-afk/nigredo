@@ -166,7 +166,8 @@ class BilibiliPlatform:
         try:
             result = subprocess.run(
                 cmd,
-                capture_output=True, text=True, timeout=30
+                capture_output=True, text=True, timeout=30,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if result.returncode != 0:
                 logger.warning(f"yt-dlp 兜底获取信息失败: {result.stderr}")
@@ -226,7 +227,7 @@ class BilibiliPlatform:
         cookie_args, cookie_file = self._resolve_cookie()
         cmd.extend(cookie_args)
         try:
-            subprocess.run(cmd, check=True, timeout=120, capture_output=True, text=True)
+            subprocess.run(cmd, check=True, timeout=120, capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except subprocess.CalledProcessError as e:
             stderr = (e.stderr or "").strip() or (e.stdout or "").strip() or "（yt-dlp 无输出）"
             logger.error(f"yt-dlp 下载失败: {stderr}")

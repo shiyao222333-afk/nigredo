@@ -127,6 +127,7 @@ class FunASRBackend(ASRBackend):
                     text=True,
                     timeout=900,
                     env=env,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                 )
             except subprocess.TimeoutExpired:
                 last_err = f"子进程超时(attempt {attempt})"
